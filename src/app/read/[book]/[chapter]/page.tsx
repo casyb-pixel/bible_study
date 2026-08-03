@@ -10,7 +10,8 @@ import {
   resolveBookName,
 } from "@/lib/bible/books";
 import { ChapterFetchError, getChapter } from "@/lib/bible/get-chapter";
-import { resolveUserId, upsertProgress } from "@/lib/progress";
+import { upsertProgress } from "@/lib/progress";
+import { buildUserQuery, resolveAppUser } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,8 @@ type ReadChapterPageProps = {
     chapter: string;
   }>;
   searchParams: Promise<{
+    user?: string | string[];
+    username?: string | string[];
     userId?: string | string[];
   }>;
 };
@@ -27,16 +30,9 @@ type ReadChapterPageProps = {
 function buildChapterHref(
   book: BookName,
   chapter: number,
-  userIdParam?: string | string[],
+  username: string,
 ): string {
-  const path = `/read/${encodeURIComponent(book)}/${chapter}`;
-  const value = Array.isArray(userIdParam) ? userIdParam[0] : userIdParam;
-
-  if (value && value.trim().length > 0) {
-    return `${path}?userId=${encodeURIComponent(value)}`;
-  }
-
-  return path;
+  return `/read/${encodeURIComponent(book)}/${chapter}?${buildUserQuery(username)}`;
 }
 
 function PageShell({
@@ -63,11 +59,11 @@ export default async function ReadChapterPage({
   searchParams,
 }: ReadChapterPageProps) {
   const { book: bookParam, chapter: chapterParam } = await params;
-  const { userId: userIdParam } = await searchParams;
+  const query = await searchParams;
 
   const book = resolveBookName(decodeURIComponent(bookParam));
   const chapter = Number(chapterParam);
-  const userId = resolveUserId(userIdParam);
+  const appUser = await resolveAppUser(query);
 
   if (
     !book ||
@@ -77,11 +73,20 @@ export default async function ReadChapterPage({
     notFound();
   }
 
-  if (!userId) {
+  if (!appUser) {
     return (
       <PageShell title={`${book} ${chapter}`}>
         <p className="text-base leading-7 text-neutral-700">
-          userId must be a valid UUID when provided.
+          Choose a user from the home page before reading. Use a username such
+          as <span className="font-medium">casyb</span>.
+        </p>
+        <p className="mt-8">
+          <Link
+            href="/"
+            className="text-sm text-neutral-800 underline underline-offset-4 hover:text-neutral-950"
+          >
+            Return home
+          </Link>
         </p>
       </PageShell>
     );
@@ -104,7 +109,7 @@ export default async function ReadChapterPage({
         </p>
         <p className="mt-8">
           <Link
-            href={buildChapterHref(book, chapter, userIdParam)}
+            href={buildChapterHref(book, chapter, appUser.username)}
             className="text-sm text-neutral-800 underline underline-offset-4 hover:text-neutral-950"
           >
             Try again
@@ -123,7 +128,7 @@ export default async function ReadChapterPage({
 
   try {
     savedPosition = await upsertProgress({
-      userId,
+      userId: appUser.id,
       book: chapterText.book,
       chapter: chapterText.chapter,
       verse: 1,
@@ -143,6 +148,9 @@ export default async function ReadChapterPage({
         </h1>
         <p className="mt-3 text-sm tracking-wide text-neutral-500">
           Legacy Standard Bible
+        </p>
+        <p className="mt-2 text-sm text-neutral-500">
+          Reading as {appUser.username}
         </p>
         {savedPosition ? (
           <p className="mt-2 text-sm text-neutral-500">
@@ -174,7 +182,7 @@ export default async function ReadChapterPage({
             href={buildChapterHref(
               previous.book,
               previous.chapter,
-              userIdParam,
+              appUser.username,
             )}
             className="hover:text-neutral-900"
           >
@@ -185,7 +193,7 @@ export default async function ReadChapterPage({
         )}
         {next ? (
           <Link
-            href={buildChapterHref(next.book, next.chapter, userIdParam)}
+            href={buildChapterHref(next.book, next.chapter, appUser.username)}
             className="hover:text-neutral-900"
           >
             Next chapter

@@ -5,10 +5,12 @@ import { useState, type FormEvent } from "react";
 
 type CreatedUser = {
   id: string;
+  username: string;
   preferredVoice: "male" | "female";
 };
 
 export function NewUserForm() {
+  const [username, setUsername] = useState("");
   const [preferredVoice, setPreferredVoice] = useState<"male" | "female">(
     "male",
   );
@@ -27,7 +29,7 @@ export function NewUserForm() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ preferredVoice }),
+        body: JSON.stringify({ username, preferredVoice }),
       });
 
       const data = (await response.json()) as CreatedUser | { error: string };
@@ -50,6 +52,24 @@ export function NewUserForm() {
   return (
     <div className="mt-8">
       <form onSubmit={handleSubmit} className="space-y-4">
+        <label className="block text-sm text-neutral-700">
+          Username
+          <input
+            type="text"
+            name="username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            spellCheck={false}
+            autoComplete="username"
+            placeholder="casyb"
+            disabled={isSubmitting}
+            className="mt-2 block w-full border border-neutral-300 bg-white px-3 py-2.5 text-base text-neutral-900 outline-none focus:border-neutral-500 disabled:opacity-50"
+          />
+        </label>
+        <p className="text-sm text-neutral-500">
+          3–32 characters. Letters, numbers, underscore, or hyphen.
+        </p>
+
         <label className="block text-sm text-neutral-700">
           Preferred voice
           <select
@@ -80,23 +100,29 @@ export function NewUserForm() {
         <div className="mt-8 space-y-3 text-base text-neutral-700">
           <p>User created.</p>
           <p>
-            User ID:{" "}
-            <span className="break-all font-mono text-sm text-neutral-900">
+            Username:{" "}
+            <span className="font-medium text-neutral-900">
+              {createdUser.username}
+            </span>
+          </p>
+          <p>
+            Internal ID:{" "}
+            <span className="break-all font-mono text-sm text-neutral-600">
               {createdUser.id}
             </span>
           </p>
           <p>Preferred voice: {createdUser.preferredVoice}</p>
           <p>
             <Link
-              href={`/?userId=${encodeURIComponent(createdUser.id)}`}
+              href={`/?user=${encodeURIComponent(createdUser.username)}`}
               className="text-neutral-800 underline underline-offset-4 hover:text-neutral-950"
             >
-              Begin reading
+              Begin reading as {createdUser.username}
             </Link>
           </p>
           <p>
             <Link
-              href={`/read/Genesis/1?userId=${encodeURIComponent(createdUser.id)}`}
+              href={`/read/Genesis/1?user=${encodeURIComponent(createdUser.username)}`}
               className="text-neutral-800 underline underline-offset-4 hover:text-neutral-950"
             >
               Open Genesis 1

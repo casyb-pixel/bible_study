@@ -3,40 +3,41 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const USERNAME_PATTERN = /^[a-zA-Z0-9_-]{3,32}$/;
 
 export function ExistingUserForm() {
   const router = useRouter();
-  const [userId, setUserId] = useState("");
+  const [username, setUsername] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const trimmed = userId.trim();
+    const trimmed = username.trim();
 
-    if (!UUID_PATTERN.test(trimmed)) {
-      setError("Enter a valid user ID (UUID).");
+    if (!USERNAME_PATTERN.test(trimmed)) {
+      setError(
+        "Enter a username (3–32 characters: letters, numbers, underscore, or hyphen).",
+      );
       return;
     }
 
     setError(null);
-    router.push(`/?userId=${encodeURIComponent(trimmed)}`);
+    router.push(`/?user=${encodeURIComponent(trimmed.toLowerCase())}`);
   }
 
   return (
     <form onSubmit={handleSubmit} className="mt-4 space-y-3">
       <label className="block text-sm text-neutral-600">
-        Existing user ID
+        Username
         <input
           type="text"
-          name="userId"
-          value={userId}
-          onChange={(event) => setUserId(event.target.value)}
+          name="username"
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
           spellCheck={false}
-          autoComplete="off"
-          placeholder="00000000-0000-4000-8000-000000000001"
-          className="mt-2 block w-full border border-neutral-300 bg-white px-3 py-2.5 font-mono text-sm text-neutral-900 outline-none focus:border-neutral-500"
+          autoComplete="username"
+          placeholder="casyb"
+          className="mt-2 block w-full border border-neutral-300 bg-white px-3 py-2.5 text-base text-neutral-900 outline-none focus:border-neutral-500"
         />
       </label>
       <button

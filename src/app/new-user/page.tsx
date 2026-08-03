@@ -10,8 +10,8 @@ export default function NewUserPage() {
           New user
         </h1>
         <p className="mt-3 text-base leading-7 text-neutral-700">
-          Create a user record for study progress. Authentication is not used
-          yet; keep the returned user ID to resume later.
+          Choose a simple username for study progress. Authentication is not
+          used yet; remember the username to resume later.
         </p>
       </header>
       <NewUserForm />

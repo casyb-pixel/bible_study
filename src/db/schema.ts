@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   integer,
@@ -6,18 +6,32 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
 export const preferredVoiceEnum = pgEnum("preferred_voice", ["male", "female"]);
 
-export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  email: text("email").unique(),
-  preferredVoice: preferredVoiceEnum("preferred_voice").default("male").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    username: text("username").notNull().unique(),
+    email: text("email").unique(),
+    preferredVoice: preferredVoiceEnum("preferred_voice")
+      .default("male")
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("users_username_lower_idx").on(sql`lower(${table.username})`),
+  ],
+);
 
 export const progress = pgTable("progress", {
   id: uuid("id").defaultRandom().primaryKey(),

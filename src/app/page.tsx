@@ -1,33 +1,30 @@
 import Link from "next/link";
 
 import { ExistingUserForm } from "@/components/ExistingUserForm";
-import { getProgress, resolveUserId } from "@/lib/progress";
-import { isUuid } from "@/lib/api";
+import { getProgress } from "@/lib/progress";
+import { buildUserQuery, firstSearchParam, resolveAppUser } from "@/lib/users";
 
 type HomePageProps = {
   searchParams: Promise<{
+    user?: string | string[];
+    username?: string | string[];
     userId?: string | string[];
   }>;
 };
 
-function firstParam(value?: string | string[]): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function buildReadHref(
-  book: string,
-  chapter: number,
-  userId: string,
-): string {
-  return `/read/${encodeURIComponent(book)}/${chapter}?userId=${encodeURIComponent(userId)}`;
+function buildReadHref(book: string, chapter: number, username: string): string {
+  return `/read/${encodeURIComponent(book)}/${chapter}?${buildUserQuery(username)}`;
 }
 
 export default async function Home({ searchParams }: HomePageProps) {
-  const { userId: userIdParam } = await searchParams;
-  const rawUserId = firstParam(userIdParam)?.trim();
-  const hasExplicitUserId = Boolean(rawUserId);
+  const params = await searchParams;
+  const hasSelection = Boolean(
+    firstSearchParam(params.user) ||
+      firstSearchParam(params.username) ||
+      firstSearchParam(params.userId),
+  );
 
-  if (!hasExplicitUserId) {
+  if (!hasSelection) {
     return (
       <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6 py-16 sm:px-8">
         <header className="space-y-3">
@@ -44,7 +41,7 @@ export default async function Home({ searchParams }: HomePageProps) {
         <section className="mt-12 border-t border-neutral-200 pt-10">
           <h2 className="text-lg font-medium text-neutral-900">Who is studying?</h2>
           <p className="mt-2 text-sm leading-6 text-neutral-600">
-            Choose how to continue. Progress is stored by user ID.
+            Choose how to continue. Progress is stored by username.
           </p>
 
           <div className="mt-6 space-y-8">
@@ -70,14 +67,16 @@ export default async function Home({ searchParams }: HomePageProps) {
     );
   }
 
-  if (!isUuid(rawUserId)) {
+  const appUser = await resolveAppUser(params);
+
+  if (!appUser) {
     return (
       <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6 py-16 sm:px-8">
         <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">
           Bible Study
         </h1>
         <p className="mt-6 text-base leading-7 text-neutral-700">
-          The provided user ID is not valid.
+          That user was not found. Check the username and try again.
         </p>
         <p className="mt-8">
           <Link
@@ -91,21 +90,20 @@ export default async function Home({ searchParams }: HomePageProps) {
     );
   }
 
-  const userId = resolveUserId(rawUserId);
-  if (!userId) {
-    return null;
-  }
-
   let progress = null;
   try {
-    progress = await getProgress(userId);
+    progress = await getProgress(appUser.id);
   } catch {
     progress = null;
   }
 
   const resumeHref = progress
-    ? buildReadHref(progress.currentBook, progress.currentChapter, userId)
-    : buildReadHref("Genesis", 1, userId);
+    ? buildReadHref(
+        progress.currentBook,
+        progress.currentChapter,
+        appUser.username,
+      )
+    : buildReadHref("Genesis", 1, appUser.username);
 
   const resumeLabel = progress
     ? `Resume ${progress.currentBook} ${progress.currentChapter}:${progress.currentVerse}`
@@ -125,9 +123,7 @@ export default async function Home({ searchParams }: HomePageProps) {
 
       <section className="mt-12 border-t border-neutral-200 pt-10">
         <h2 className="text-lg font-medium text-neutral-900">Current user</h2>
-        <p className="mt-3 break-all font-mono text-sm text-neutral-800">
-          {userId}
-        </p>
+        <p className="mt-3 text-xl text-neutral-900">{appUser.username}</p>
 
         <p className="mt-8">
           <Link
