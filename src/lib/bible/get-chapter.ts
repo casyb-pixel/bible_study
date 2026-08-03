@@ -5,6 +5,7 @@ import {
 } from "lsbible";
 
 import { isValidChapter } from "./books";
+import { getCachedChapter, saveChapterCache } from "./chapter-cache";
 import {
   getLsbibleClient,
   isBuildIdPinned,
@@ -47,13 +48,13 @@ function isRateLimited(error: unknown): boolean {
 }
 
 function shouldResetClient(error: unknown): boolean {
-  // A pinned build ID cannot be repaired by recreating the client.
   if (isBuildIdPinned()) {
-    return error instanceof APIError && /status 404|status 5\d\d/i.test(error.message);
+    return (
+      error instanceof APIError && /status 404|status 5\d\d/i.test(error.message)
+    );
   }
 
   if (error instanceof BuildIDError) {
-    // Do not reset/retry-storm on 429; that worsens rate limits.
     return !isRateLimited(error);
   }
 
@@ -69,25 +70,21 @@ function shouldRetry(error: unknown, attempt: number): boolean {
     return false;
   }
 
-  // One attempt only when build-ID discovery is rate-limited.
   if (error instanceof BuildIDError && isRateLimited(error)) {
+    return false;
+  }
+
+  if (error instanceof APIError && isRateLimited(error)) {
     return false;
   }
 
   return true;
 }
 
-export async function getChapter(
+async function fetchChapterFromUpstream(
   book: BookName,
   chapter: number,
 ): Promise<ChapterText> {
-  if (!isValidChapter(book, chapter)) {
-    throw new ChapterFetchError(`Invalid chapter: ${book} ${chapter}`, {
-      causeName: "InvalidChapter",
-      retryable: false,
-    });
-  }
-
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -122,7 +119,7 @@ export async function getChapter(
     } catch (error) {
       lastError = error;
       logBibleError(
-        "getChapter failed",
+        "upstream getChapter failed",
         { book, chapter, attempt, maxAttempts: MAX_ATTEMPTS },
         error,
       );
@@ -140,6 +137,57 @@ export async function getChapter(
   }
 
   throw toChapterFetchError(lastError);
+}
+
+export async function getChapter(
+  book: BookName,
+  chapter: number,
+): Promise<ChapterText> {
+  if (!isValidChapter(book, chapter)) {
+    throw new ChapterFetchError(`Invalid chapter: ${book} ${chapter}`, {
+      causeName: "InvalidChapter",
+      retryable: false,
+    });
+  }
+
+  try {
+    const cached = await getCachedChapter(book, chapter);
+    if (cached) {
+      return {
+        translation: "LSB",
+        book,
+        chapter,
+        verseCount: cached.verses.length,
+        verses: cached.verses,
+        plainText: cached.plainText,
+      };
+    }
+  } catch (error) {
+    logBibleError(
+      "chapter cache read failed; continuing with upstream fetch",
+      { book, chapter },
+      error,
+    );
+  }
+
+  const chapterText = await fetchChapterFromUpstream(book, chapter);
+
+  try {
+    await saveChapterCache({
+      book: chapterText.book,
+      chapter: chapterText.chapter,
+      plainText: chapterText.plainText,
+      verses: chapterText.verses,
+    });
+  } catch (error) {
+    logBibleError(
+      "chapter cache write failed; returning fetched chapter",
+      { book, chapter },
+      error,
+    );
+  }
+
+  return chapterText;
 }
 
 export { ChapterFetchError };

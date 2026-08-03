@@ -2,13 +2,20 @@ import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+export type CachedChapterVerse = {
+  verse: number;
+  text: string;
+};
 
 export const preferredVoiceEnum = pgEnum("preferred_voice", ["male", "female"]);
 
@@ -67,6 +74,21 @@ export const chapterCompletions = pgTable("chapter_completions", {
   completedAt: timestamp("completed_at", { withTimezone: true }).defaultNow().notNull(),
   understandingConfirmed: boolean("understanding_confirmed").default(false).notNull(),
 });
+
+/** Cached LSB chapter text to avoid repeated upstream fetches. */
+export const chapterCache = pgTable(
+  "chapter_cache",
+  {
+    book: text("book").notNull(),
+    chapter: integer("chapter").notNull(),
+    plainText: text("plain_text").notNull(),
+    verses: jsonb("verses").$type<CachedChapterVerse[]>().notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.book, table.chapter] })],
+);
 
 export const usersRelations = relations(users, ({ many }) => ({
   progress: many(progress),
