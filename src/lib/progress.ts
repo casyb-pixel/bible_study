@@ -46,6 +46,18 @@ async function ensureUser(userId: string): Promise<void> {
   });
 }
 
+export async function getProgress(
+  userId: string,
+): Promise<ProgressRecord | null> {
+  const rows = await db
+    .select(progressColumns)
+    .from(progress)
+    .where(eq(progress.userId, userId))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
 export async function upsertProgress(input: {
   userId: string;
   book: string;
