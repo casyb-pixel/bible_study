@@ -105,7 +105,10 @@ export default async function ReadChapterPage({
       <PageShell title={`${book} ${chapter}`}>
         <p className="text-base leading-7 text-neutral-700">{message}</p>
         <p className="mt-4 text-sm text-neutral-500">
-          If this continues, wait a moment and open the chapter again.
+          {error instanceof ChapterFetchError &&
+          /429|rate-limiting|build ID/i.test(error.message)
+            ? "This is usually a temporary limit from the Scripture source. After LSB_BUILD_ID is set on the server, chapter loading should be stable."
+            : "If this continues, wait a moment and open the chapter again."}
         </p>
         <p className="mt-8">
           <Link

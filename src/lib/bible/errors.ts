@@ -5,16 +5,25 @@ import {
   LSBibleError,
 } from "lsbible";
 
+import { isBuildIdPinned } from "./client";
+
 export class ChapterFetchError extends Error {
   readonly causeName: string;
   readonly retryable: boolean;
 
-  constructor(message: string, options?: { causeName?: string; retryable?: boolean }) {
+  constructor(
+    message: string,
+    options?: { causeName?: string; retryable?: boolean },
+  ) {
     super(message);
     this.name = "ChapterFetchError";
     this.causeName = options?.causeName ?? "Error";
     this.retryable = options?.retryable ?? false;
   }
+}
+
+function isRateLimitedMessage(message: string): boolean {
+  return /429|too many requests|rate limit/i.test(message);
 }
 
 export function toChapterFetchError(error: unknown): ChapterFetchError {
@@ -30,13 +39,31 @@ export function toChapterFetchError(error: unknown): ChapterFetchError {
   }
 
   if (error instanceof BuildIDError) {
+    if (isRateLimitedMessage(error.message)) {
+      return new ChapterFetchError(
+        isBuildIdPinned()
+          ? "The Scripture source is rate-limiting requests. Wait a moment and try again."
+          : "The Scripture source is rate-limiting build ID lookups (HTTP 429). Set the LSB_BUILD_ID environment variable on the server, then redeploy, and try again.",
+        { causeName: error.name, retryable: true },
+      );
+    }
+
     return new ChapterFetchError(
-      "The Scripture source could not be reached (build ID lookup failed). Try again in a moment.",
+      isBuildIdPinned()
+        ? "The Scripture source could not be reached with the configured build ID. Check LSB_BUILD_ID and try again."
+        : "The Scripture source build ID could not be determined. Set LSB_BUILD_ID on the server to avoid automatic lookup, then redeploy.",
       { causeName: error.name, retryable: true },
     );
   }
 
   if (error instanceof APIError) {
+    if (isRateLimitedMessage(error.message)) {
+      return new ChapterFetchError(
+        "The Scripture source is rate-limiting requests (HTTP 429). Wait a moment and try again.",
+        { causeName: error.name, retryable: true },
+      );
+    }
+
     return new ChapterFetchError(
       "The Scripture source returned an error. Try again in a moment.",
       { causeName: error.name, retryable: true },
@@ -79,6 +106,7 @@ export function logBibleError(
 
   console.error(`[bible] ${context}`, {
     ...details,
+    buildIdPinned: isBuildIdPinned(),
     error: base,
   });
 }

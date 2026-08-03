@@ -4,13 +4,34 @@ import { LSBibleClient, MemoryCacheProvider } from "lsbible";
  * Shared LSBible client for private family study use.
  * Reads from read.lsbible.org via the unofficial lsbible package.
  */
+
+/** Trimmed LSB_BUILD_ID from the environment, if present. */
+export function getConfiguredBuildId(): string | undefined {
+  const value = process.env.LSB_BUILD_ID?.trim();
+  return value && value.length > 0 ? value : undefined;
+}
+
+export function isBuildIdPinned(): boolean {
+  return getConfiguredBuildId() !== undefined;
+}
+
 export function createLsbibleClient(): LSBibleClient {
+  const pinnedBuildId = getConfiguredBuildId();
+
+  if (pinnedBuildId) {
+    console.info("[bible] Using pinned LSB_BUILD_ID (skipping auto lookup)");
+  } else {
+    console.info(
+      "[bible] LSB_BUILD_ID not set; using automatic build ID lookup",
+    );
+  }
+
   return new LSBibleClient({
     cache: {
       provider: new MemoryCacheProvider(),
     },
-    // Optional override if auto-detected build IDs fail in production.
-    buildId: process.env.LSB_BUILD_ID || undefined,
+    // When set, the SDK skips fetching the homepage for a build ID.
+    buildId: pinnedBuildId,
     timeout: 45,
     headers: {
       // Browser-like headers reduce upstream blocks from serverless IPs.
@@ -29,7 +50,7 @@ export function getLsbibleClient(): LSBibleClient {
   return sharedClient;
 }
 
-/** Replace the shared client (used after build-id / upstream failures). */
+/** Replace the shared client (used after upstream failures when not pinned). */
 export function resetLsbibleClient(): LSBibleClient {
   sharedClient = createLsbibleClient();
   return sharedClient;

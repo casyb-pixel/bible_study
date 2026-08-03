@@ -5,7 +5,11 @@ import {
 } from "lsbible";
 
 import { isValidChapter } from "./books";
-import { getLsbibleClient, resetLsbibleClient } from "./client";
+import {
+  getLsbibleClient,
+  isBuildIdPinned,
+  resetLsbibleClient,
+} from "./client";
 import {
   ChapterFetchError,
   logBibleError,
@@ -35,9 +39,22 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+function isRateLimited(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /429|too many requests|rate limit/i.test(error.message)
+  );
+}
+
 function shouldResetClient(error: unknown): boolean {
+  // A pinned build ID cannot be repaired by recreating the client.
+  if (isBuildIdPinned()) {
+    return error instanceof APIError && /status 404|status 5\d\d/i.test(error.message);
+  }
+
   if (error instanceof BuildIDError) {
-    return true;
+    // Do not reset/retry-storm on 429; that worsens rate limits.
+    return !isRateLimited(error);
   }
 
   if (error instanceof APIError) {
@@ -45,6 +62,19 @@ function shouldResetClient(error: unknown): boolean {
   }
 
   return false;
+}
+
+function shouldRetry(error: unknown, attempt: number): boolean {
+  if (attempt >= MAX_ATTEMPTS) {
+    return false;
+  }
+
+  // One attempt only when build-ID discovery is rate-limited.
+  if (error instanceof BuildIDError && isRateLimited(error)) {
+    return false;
+  }
+
+  return true;
 }
 
 export async function getChapter(
@@ -101,9 +131,11 @@ export async function getChapter(
         resetLsbibleClient();
       }
 
-      if (attempt < MAX_ATTEMPTS) {
-        await delay(400 * attempt);
+      if (!shouldRetry(error, attempt)) {
+        break;
       }
+
+      await delay(isRateLimited(error) ? 1500 * attempt : 400 * attempt);
     }
   }
 
