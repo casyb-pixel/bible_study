@@ -27,7 +27,7 @@ These are non-negotiable:
 | Layer | Choice |
 | --- | --- |
 | App framework | Next.js 15 (App Router), TypeScript, Tailwind CSS |
-| Hosting | Vercel (planned / target) |
+| Hosting | Vercel |
 | Database | Neon (serverless Postgres) via Drizzle ORM |
 | Auth | Not implemented yet (Clerk or Better Auth planned) |
 | Voice | Not implemented yet (Grok Voice planned) |
@@ -36,17 +36,17 @@ These are non-negotiable:
 
 Built so far:
 
-- Next.js 15 project foundation
+- Next.js 15 project foundation and basic PWA support
 - Neon database with Drizzle schema for `users`, `progress`, `placeholders`, and `chapter_completions`
-- API routes for progress, placeholders, and chapter completions
-- Minimal landing page and project documentation
+- API routes for users, progress, placeholders, chapter completions, and LSB chapter text
+- Chapter reading page with next/previous navigation and progress saving
+- Home page resume link and simple `/new-user` creation page
 
 Not built yet:
 
-- Authentication
-- Reading engine / LSB text layer
+- Full authentication
 - Voice input and TTS
-- PWA / offline support
+- Offline scripture caching
 - Non-canonical historical text labeling UI
 
 ## Local setup
@@ -64,6 +64,8 @@ cp .env.example .env.local
 ```
 
 Set `DATABASE_URL` in `.env.local` to your Neon connection string.
+
+Do not commit `.env.local` or any file containing real database credentials. `.env*` files are gitignored except `.env.example`, which contains only a placeholder value.
 
 ### Install and run
 
@@ -84,13 +86,27 @@ npm run db:studio     # open Drizzle Studio
 
 ### Progress API (no auth yet)
 
-Pass `userId` directly. Create a user row in Neon first, then call:
+Create a user at `/new-user` or via `POST /api/users`, then pass `userId` directly:
 
 - `GET /api/progress?userId=...`
 - `POST /api/progress`
 - `GET /api/placeholders?userId=...`
 - `POST /api/placeholders`
 - `POST /api/completions`
+
+## Production (Vercel)
+
+Live site: [https://bible-study-navy.vercel.app/](https://bible-study-navy.vercel.app/)
+
+This application is intended for private family use, not as a public platform.
+
+For the production deployment to work:
+
+1. In the Vercel project settings, set the environment variable `DATABASE_URL` to the same Neon connection string used locally (Production, and Preview if you use preview deployments).
+2. Redeploy the project after adding or changing `DATABASE_URL` so the new value is applied.
+3. Confirm the site can create a user at `/new-user`, open a chapter, and resume from the home page.
+
+Without `DATABASE_URL` on Vercel, progress tracking and user creation will fail in production.
 
 ## Repository
 
