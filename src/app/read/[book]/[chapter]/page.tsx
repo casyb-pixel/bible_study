@@ -1,6 +1,13 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { BookName } from "lsbible";
 
-import { isValidChapter, resolveBookName } from "@/lib/bible/books";
+import {
+  getNextChapter,
+  getPreviousChapter,
+  isValidChapter,
+  resolveBookName,
+} from "@/lib/bible/books";
 import { getChapter } from "@/lib/bible/get-chapter";
 import { resolveUserId, upsertProgress } from "@/lib/progress";
 
@@ -13,6 +20,21 @@ type ReadChapterPageProps = {
     userId?: string | string[];
   }>;
 };
+
+function buildChapterHref(
+  book: BookName,
+  chapter: number,
+  userIdParam?: string | string[],
+): string {
+  const path = `/read/${encodeURIComponent(book)}/${chapter}`;
+  const value = Array.isArray(userIdParam) ? userIdParam[0] : userIdParam;
+
+  if (value && value.trim().length > 0) {
+    return `${path}?userId=${encodeURIComponent(value)}`;
+  }
+
+  return path;
+}
 
 export default async function ReadChapterPage({
   params,
@@ -80,6 +102,9 @@ export default async function ReadChapterPage({
     progressError = true;
   }
 
+  const previous = getPreviousChapter(chapterText.book, chapterText.chapter);
+  const next = getNextChapter(chapterText.book, chapterText.chapter);
+
   return (
     <main className="mx-auto min-h-screen max-w-xl px-6 py-16">
       <header>
@@ -108,6 +133,33 @@ export default async function ReadChapterPage({
           </p>
         ))}
       </div>
+
+      <nav className="mt-14 flex items-center justify-between gap-4 text-sm text-neutral-700">
+        {previous ? (
+          <Link
+            href={buildChapterHref(
+              previous.book,
+              previous.chapter,
+              userIdParam,
+            )}
+            className="hover:text-neutral-900"
+          >
+            Previous chapter
+          </Link>
+        ) : (
+          <span />
+        )}
+        {next ? (
+          <Link
+            href={buildChapterHref(next.book, next.chapter, userIdParam)}
+            className="hover:text-neutral-900"
+          >
+            Next chapter
+          </Link>
+        ) : (
+          <span />
+        )}
+      </nav>
     </main>
   );
 }

@@ -51,3 +51,55 @@ export function isValidChapter(book: BookName, chapter: number): boolean {
     chapter <= getBookChapterCount(book)
   );
 }
+
+export type ChapterRef = {
+  book: BookName;
+  chapter: number;
+};
+
+export function getPreviousChapter(
+  book: BookName,
+  chapter: number,
+): ChapterRef | null {
+  if (!isValidChapter(book, chapter)) {
+    return null;
+  }
+
+  if (chapter > 1) {
+    return { book, chapter: chapter - 1 };
+  }
+
+  const bookIndex = CANONICAL_BOOK_NAMES.indexOf(book);
+  if (bookIndex <= 0) {
+    return null;
+  }
+
+  const previousBook = CANONICAL_BOOK_NAMES[bookIndex - 1];
+  return {
+    book: previousBook,
+    chapter: getBookChapterCount(previousBook),
+  };
+}
+
+export function getNextChapter(
+  book: BookName,
+  chapter: number,
+): ChapterRef | null {
+  if (!isValidChapter(book, chapter)) {
+    return null;
+  }
+
+  if (chapter < getBookChapterCount(book)) {
+    return { book, chapter: chapter + 1 };
+  }
+
+  const bookIndex = CANONICAL_BOOK_NAMES.indexOf(book);
+  if (bookIndex < 0 || bookIndex >= CANONICAL_BOOK_NAMES.length - 1) {
+    return null;
+  }
+
+  return {
+    book: CANONICAL_BOOK_NAMES[bookIndex + 1],
+    chapter: 1,
+  };
+}
