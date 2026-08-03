@@ -1,7 +1,8 @@
 import type { BookName } from "lsbible";
 
 import { isValidChapter } from "./books";
-import { lsbibleClient } from "./client";
+import { getLsbibleClient } from "./client";
+import { ChapterFetchError } from "./errors";
 
 export type VerseText = {
   translation: "LSB";
@@ -17,18 +18,27 @@ export async function getVerse(
   verse: number,
 ): Promise<VerseText> {
   if (!isValidChapter(book, chapter)) {
-    throw new Error(`Invalid chapter: ${book} ${chapter}`);
+    throw new ChapterFetchError(`Invalid chapter: ${book} ${chapter}`, {
+      causeName: "InvalidChapter",
+      retryable: false,
+    });
   }
 
   if (!Number.isInteger(verse) || verse < 1) {
-    throw new Error(`Invalid verse: ${verse}`);
+    throw new ChapterFetchError(`Invalid verse: ${verse}`, {
+      causeName: "InvalidVerse",
+      retryable: false,
+    });
   }
 
-  const passage = await lsbibleClient.getVerse(book, chapter, verse);
+  const passage = await getLsbibleClient().getVerse(book, chapter, verse);
   const content = passage.verses[0];
 
   if (!content) {
-    throw new Error(`Verse not found: ${book} ${chapter}:${verse}`);
+    throw new ChapterFetchError(`Verse not found: ${book} ${chapter}:${verse}`, {
+      causeName: "VerseNotFound",
+      retryable: false,
+    });
   }
 
   return {

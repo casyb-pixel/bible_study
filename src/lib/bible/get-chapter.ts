@@ -1,7 +1,16 @@
-import type { BookName } from "lsbible";
+import {
+  APIError,
+  BuildIDError,
+  type BookName,
+} from "lsbible";
 
 import { isValidChapter } from "./books";
-import { lsbibleClient } from "./client";
+import { getLsbibleClient, resetLsbibleClient } from "./client";
+import {
+  ChapterFetchError,
+  logBibleError,
+  toChapterFetchError,
+} from "./errors";
 
 export type ChapterVerse = {
   verse: number;
@@ -18,31 +27,87 @@ export type ChapterText = {
   plainText: string;
 };
 
+const MAX_ATTEMPTS = 3;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function shouldResetClient(error: unknown): boolean {
+  if (error instanceof BuildIDError) {
+    return true;
+  }
+
+  if (error instanceof APIError) {
+    return /status 404|status 429|status 5\d\d/i.test(error.message);
+  }
+
+  return false;
+}
+
 export async function getChapter(
   book: BookName,
   chapter: number,
 ): Promise<ChapterText> {
   if (!isValidChapter(book, chapter)) {
-    throw new Error(`Invalid chapter: ${book} ${chapter}`);
+    throw new ChapterFetchError(`Invalid chapter: ${book} ${chapter}`, {
+      causeName: "InvalidChapter",
+      retryable: false,
+    });
   }
 
-  const passage = await lsbibleClient.getChapter(book, chapter);
+  let lastError: unknown;
 
-  const verses: ChapterVerse[] = passage.verses.map((verse) => ({
-    verse: verse.verseNumber,
-    text: verse.plainText.trim(),
-  }));
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const client = getLsbibleClient();
+      const passage = await client.getChapter(book, chapter);
 
-  const plainText = verses
-    .map((verse) => `${verse.verse}. ${verse.text}`)
-    .join("\n");
+      const verses: ChapterVerse[] = passage.verses.map((verse) => ({
+        verse: verse.verseNumber,
+        text: verse.plainText.trim(),
+      }));
 
-  return {
-    translation: "LSB",
-    book,
-    chapter,
-    verseCount: verses.length,
-    verses,
-    plainText,
-  };
+      if (verses.length === 0) {
+        throw new ChapterFetchError(
+          `No verses returned for ${book} ${chapter}.`,
+          { causeName: "EmptyChapter", retryable: true },
+        );
+      }
+
+      const plainText = verses
+        .map((verse) => `${verse.verse}. ${verse.text}`)
+        .join("\n");
+
+      return {
+        translation: "LSB",
+        book,
+        chapter,
+        verseCount: verses.length,
+        verses,
+        plainText,
+      };
+    } catch (error) {
+      lastError = error;
+      logBibleError(
+        "getChapter failed",
+        { book, chapter, attempt, maxAttempts: MAX_ATTEMPTS },
+        error,
+      );
+
+      if (shouldResetClient(error)) {
+        resetLsbibleClient();
+      }
+
+      if (attempt < MAX_ATTEMPTS) {
+        await delay(400 * attempt);
+      }
+    }
+  }
+
+  throw toChapterFetchError(lastError);
 }
+
+export { ChapterFetchError };

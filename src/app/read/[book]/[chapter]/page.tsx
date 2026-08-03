@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { ReactNode } from "react";
 import type { BookName } from "lsbible";
 
 import {
@@ -8,8 +9,10 @@ import {
   isValidChapter,
   resolveBookName,
 } from "@/lib/bible/books";
-import { getChapter } from "@/lib/bible/get-chapter";
+import { ChapterFetchError, getChapter } from "@/lib/bible/get-chapter";
 import { resolveUserId, upsertProgress } from "@/lib/progress";
+
+export const dynamic = "force-dynamic";
 
 type ReadChapterPageProps = {
   params: Promise<{
@@ -36,6 +39,25 @@ function buildChapterHref(
   return path;
 }
 
+function PageShell({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <main className="mx-auto min-h-screen max-w-xl px-6 py-14 sm:px-8 sm:py-16">
+      <header className="border-b border-neutral-200 pb-6">
+        <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">
+          {title}
+        </h1>
+      </header>
+      <div className="mt-8">{children}</div>
+    </main>
+  );
+}
+
 export default async function ReadChapterPage({
   params,
   searchParams,
@@ -57,30 +79,38 @@ export default async function ReadChapterPage({
 
   if (!userId) {
     return (
-      <main className="mx-auto min-h-screen max-w-xl px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
-          {book} {chapter}
-        </h1>
-        <p className="mt-4 text-base leading-relaxed text-neutral-700">
+      <PageShell title={`${book} ${chapter}`}>
+        <p className="text-base leading-7 text-neutral-700">
           userId must be a valid UUID when provided.
         </p>
-      </main>
+      </PageShell>
     );
   }
 
   let chapterText;
   try {
     chapterText = await getChapter(book, chapter);
-  } catch {
+  } catch (error) {
+    const message =
+      error instanceof ChapterFetchError
+        ? error.message
+        : "The chapter text could not be loaded from the Scripture source.";
+
     return (
-      <main className="mx-auto min-h-screen max-w-xl px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
-          {book} {chapter}
-        </h1>
-        <p className="mt-4 text-base leading-relaxed text-neutral-700">
-          The chapter text could not be loaded.
+      <PageShell title={`${book} ${chapter}`}>
+        <p className="text-base leading-7 text-neutral-700">{message}</p>
+        <p className="mt-4 text-sm text-neutral-500">
+          If this continues, wait a moment and open the chapter again.
         </p>
-      </main>
+        <p className="mt-8">
+          <Link
+            href={buildChapterHref(book, chapter, userIdParam)}
+            className="text-sm text-neutral-800 underline underline-offset-4 hover:text-neutral-950"
+          >
+            Try again
+          </Link>
+        </p>
+      </PageShell>
     );
   }
 
@@ -106,12 +136,14 @@ export default async function ReadChapterPage({
   const next = getNextChapter(chapterText.book, chapterText.chapter);
 
   return (
-    <main className="mx-auto min-h-screen max-w-xl px-6 py-16">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
+    <main className="mx-auto min-h-screen max-w-xl px-6 py-14 sm:px-8 sm:py-16">
+      <header className="border-b border-neutral-200 pb-6">
+        <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">
           {chapterText.book} {chapterText.chapter}
         </h1>
-        <p className="mt-2 text-sm text-neutral-500">Legacy Standard Bible</p>
+        <p className="mt-3 text-sm tracking-wide text-neutral-500">
+          Legacy Standard Bible
+        </p>
         {savedPosition ? (
           <p className="mt-2 text-sm text-neutral-500">
             Saved position: {savedPosition.currentBook}{" "}
@@ -125,16 +157,18 @@ export default async function ReadChapterPage({
         ) : null}
       </header>
 
-      <div className="mt-10 space-y-5 text-base leading-relaxed text-neutral-800">
+      <div className="mt-10 space-y-6 text-[1.05rem] leading-8 text-neutral-800">
         {chapterText.verses.map((verse) => (
           <p key={verse.verse}>
-            <span className="mr-2 text-sm text-neutral-500">{verse.verse}</span>
+            <span className="mr-2 align-super text-xs text-neutral-500">
+              {verse.verse}
+            </span>
             {verse.text}
           </p>
         ))}
       </div>
 
-      <nav className="mt-14 flex items-center justify-between gap-4 text-sm text-neutral-700">
+      <nav className="mt-16 flex items-center justify-between gap-6 border-t border-neutral-200 pt-8 text-sm text-neutral-700">
         {previous ? (
           <Link
             href={buildChapterHref(

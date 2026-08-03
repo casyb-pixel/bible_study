@@ -1,13 +1,8 @@
-import {
-  APIError,
-  BuildIDError,
-  InvalidReferenceError,
-  LSBibleError,
-} from "lsbible";
-
 import { isValidChapter, resolveBookName } from "@/lib/bible/books";
-import { getChapter } from "@/lib/bible/get-chapter";
+import { ChapterFetchError, getChapter } from "@/lib/bible/get-chapter";
 import { jsonError, jsonOk } from "@/lib/api";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -48,16 +43,8 @@ export async function GET(request: Request) {
       plainText: chapterText.plainText,
     });
   } catch (error) {
-    if (error instanceof InvalidReferenceError) {
-      return jsonError(error.message, 400);
-    }
-
-    if (error instanceof BuildIDError || error instanceof APIError) {
-      return jsonError("Unable to fetch chapter text at this time", 502);
-    }
-
-    if (error instanceof LSBibleError) {
-      return jsonError(error.message, 502);
+    if (error instanceof ChapterFetchError) {
+      return jsonError(error.message, error.retryable ? 502 : 400);
     }
 
     return jsonError("Unexpected error fetching chapter text", 500);
