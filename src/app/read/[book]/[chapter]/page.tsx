@@ -9,6 +9,7 @@ import {
   resolveBookName,
 } from "@/lib/bible/books";
 import { ChapterVoicePanel } from "@/components/ChapterVoicePanel";
+import { JumpToChapterForm } from "@/components/JumpToChapterForm";
 import { ChapterFetchError, getChapter } from "@/lib/bible/get-chapter";
 import { upsertProgress } from "@/lib/progress";
 import { buildUserQuery, resolveAppUser } from "@/lib/users";
@@ -171,7 +172,29 @@ export default async function ReadChapterPage({
           translation={chapterText.translation}
           verses={chapterText.verses}
           preferredVoice={appUser.preferredVoice}
+          userId={appUser.id}
+          nextChapter={
+            next
+              ? {
+                  book: next.book,
+                  chapter: next.chapter,
+                  href: buildChapterHref(
+                    next.book,
+                    next.chapter,
+                    appUser.username,
+                  ),
+                }
+              : null
+          }
         />
+
+        <div className="mt-6">
+          <JumpToChapterForm
+            username={appUser.username}
+            initialBook={chapterText.book}
+            initialChapter={chapterText.chapter}
+          />
+        </div>
       </header>
 
       <div className="mt-10 space-y-6 text-[1.05rem] leading-8 text-neutral-800">

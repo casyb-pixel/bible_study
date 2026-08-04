@@ -21,13 +21,45 @@ type XaiChatResponse = {
   }>;
   error?: {
     message?: string;
+    code?: string | number;
+    type?: string;
   };
 };
 
+function shortSafeMessage(raw: string, maxLength = 180): string {
+  const cleaned = raw.replace(/\s+/g, " ").trim();
+  if (!cleaned) {
+    return "No error message provided";
+  }
+  if (cleaned.length <= maxLength) {
+    return cleaned;
+  }
+  return `${cleaned.slice(0, maxLength - 1)}…`;
+}
+
+function extractXaiErrorMessage(
+  data: XaiChatResponse | null,
+  rawBody: string,
+): string {
+  const fromJson = data?.error?.message?.trim();
+  if (fromJson) {
+    return shortSafeMessage(fromJson);
+  }
+  if (rawBody.trim()) {
+    return shortSafeMessage(rawBody);
+  }
+  return "No error message provided";
+}
+
 export async function requestClarification(userMessage: string): Promise<string> {
   const apiKey = process.env.XAI_API_KEY?.trim();
+  const hasApiKey = Boolean(apiKey);
+
+  // Never log the key itself — presence only.
+  console.info("[clarify] XAI_API_KEY present:", hasApiKey);
+
   if (!apiKey) {
-    throw new ClarifyApiError("XAI_API_KEY is not configured", 500);
+    throw new ClarifyApiError("XAI_API_KEY is missing on the server", 500);
   }
 
   const model = process.env.XAI_MODEL?.trim() || DEFAULT_MODEL;
@@ -53,12 +85,23 @@ export async function requestClarification(userMessage: string): Promise<string>
     throw new ClarifyApiError("Could not reach the clarification service", 502);
   }
 
-  const data = (await response.json().catch(() => null)) as XaiChatResponse | null;
+  const rawBody = await response.text();
+  let data: XaiChatResponse | null = null;
+  try {
+    data = rawBody ? (JSON.parse(rawBody) as XaiChatResponse) : null;
+  } catch {
+    data = null;
+  }
 
   if (!response.ok) {
-    const detail = data?.error?.message?.trim();
+    console.error("[clarify] xAI API failed", {
+      status: response.status,
+      body: rawBody,
+    });
+
+    const detail = extractXaiErrorMessage(data, rawBody);
     throw new ClarifyApiError(
-      detail || "Clarification service returned an error",
+      `xAI returned ${response.status}: ${detail}`,
       response.status >= 400 && response.status < 600 ? response.status : 502,
     );
   }

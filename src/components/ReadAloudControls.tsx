@@ -29,6 +29,8 @@ type ReadAloudControlsProps = {
   /** Increment to resume chapter reading from the current verse. */
   resumeRequestId?: number;
   onCurrentVerseChange?: (verse: number | null) => void;
+  /** Fired once when TTS finishes the last verse of the chapter. */
+  onChapterEnd?: () => void;
 };
 
 type PlaybackState = "idle" | "playing" | "paused";
@@ -46,6 +48,7 @@ export function ReadAloudControls({
   pauseRequestId = 0,
   resumeRequestId = 0,
   onCurrentVerseChange,
+  onChapterEnd,
 }: ReadAloudControlsProps) {
   const [playbackState, setPlaybackState] = useState<PlaybackState>("idle");
   const [currentVerse, setCurrentVerse] = useState<number | null>(null);
@@ -62,12 +65,14 @@ export function ReadAloudControls({
   const lastResumeRequestRef = useRef(0);
   const readingSpeedRef = useRef<ReadingSpeed>("normal");
   const onCurrentVerseChangeRef = useRef(onCurrentVerseChange);
+  const onChapterEndRef = useRef(onChapterEnd);
 
   preferredVoiceRef.current = preferredVoice;
   versesRef.current = verses;
   playbackStateRef.current = playbackState;
   readingSpeedRef.current = readingSpeed;
   onCurrentVerseChangeRef.current = onCurrentVerseChange;
+  onChapterEndRef.current = onChapterEnd;
 
   function updateCurrentVerse(verse: number | null) {
     setCurrentVerse(verse);
@@ -158,10 +163,14 @@ export function ReadAloudControls({
 
     const list = versesRef.current;
     if (index < 0 || index >= list.length) {
+      const finishedChapter = list.length > 0 && index >= list.length;
       speakingRef.current = false;
       indexRef.current = 0;
       updateCurrentVerse(null);
       setPlaybackState("idle");
+      if (finishedChapter) {
+        onChapterEndRef.current?.();
+      }
       return;
     }
 

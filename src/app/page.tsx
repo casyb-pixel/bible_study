@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { ExistingUserForm } from "@/components/ExistingUserForm";
+import { JumpToChapterForm } from "@/components/JumpToChapterForm";
 import { TranslationSelector } from "@/components/TranslationSelector";
 import { getProgress } from "@/lib/progress";
 import { buildUserQuery, firstSearchParam, resolveAppUser } from "@/lib/users";
@@ -142,6 +143,14 @@ export default async function Home({ searchParams }: HomePageProps) {
             {resumeLabel}
           </Link>
         </p>
+
+        <div className="mt-10 border-t border-neutral-200 pt-8">
+          <JumpToChapterForm
+            username={appUser.username}
+            initialBook={progress?.currentBook}
+            initialChapter={progress?.currentChapter}
+          />
+        </div>
 
         <p className="mt-6 text-sm text-neutral-600">
           <Link
