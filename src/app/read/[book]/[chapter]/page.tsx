@@ -186,6 +186,19 @@ export default async function ReadChapterPage({
                 }
               : null
           }
+          previousChapter={
+            previous
+              ? {
+                  book: previous.book,
+                  chapter: previous.chapter,
+                  href: buildChapterHref(
+                    previous.book,
+                    previous.chapter,
+                    appUser.username,
+                  ),
+                }
+              : null
+          }
         />
 
         <div className="mt-6">

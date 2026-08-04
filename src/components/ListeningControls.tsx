@@ -13,6 +13,8 @@ type ListeningControlsProps = {
   onFinalTranscript: (text: string) => void;
   /** When false, keep the mic session alive but do not emit transcripts (e.g. while TTS replies). */
   acceptTranscripts?: boolean;
+  /** Increment to turn continuous listening off (voice command). */
+  stopRequestId?: number;
 };
 
 type ListeningState = "off" | "starting" | "listening" | "error";
@@ -20,6 +22,7 @@ type ListeningState = "off" | "starting" | "listening" | "error";
 export function ListeningControls({
   onFinalTranscript,
   acceptTranscripts = true,
+  stopRequestId = 0,
 }: ListeningControlsProps) {
   const [listeningState, setListeningState] = useState<ListeningState>("off");
   const [recognizedText, setRecognizedText] = useState("");
@@ -31,6 +34,7 @@ export function ListeningControls({
   const onFinalTranscriptRef = useRef(onFinalTranscript);
   const acceptTranscriptsRef = useRef(acceptTranscripts);
   const restartTimerRef = useRef<number | null>(null);
+  const lastStopRequestRef = useRef(0);
 
   onFinalTranscriptRef.current = onFinalTranscript;
   acceptTranscriptsRef.current = acceptTranscripts;
@@ -49,6 +53,22 @@ export function ListeningControls({
       recognitionRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (stopRequestId <= lastStopRequestRef.current) {
+      return;
+    }
+    lastStopRequestRef.current = stopRequestId;
+    enabledRef.current = false;
+    if (restartTimerRef.current !== null) {
+      window.clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    recognitionRef.current?.abort();
+    recognitionRef.current = null;
+    setListeningState("off");
+    setErrorMessage(null);
+  }, [stopRequestId]);
 
   function clearRestartTimer() {
     if (restartTimerRef.current !== null) {

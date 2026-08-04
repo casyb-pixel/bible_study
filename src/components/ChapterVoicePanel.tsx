@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 
 import {
@@ -13,20 +14,23 @@ import {
   isPlausibleClarifyTranscript,
   selectRecentVerses,
 } from "@/lib/clarify/transcript";
-import {
-  parseUnderstandingAnswer,
-  UNDERSTANDING_QUESTION,
-} from "@/lib/completion/understanding";
+import { UNDERSTANDING_QUESTION } from "@/lib/completion/understanding";
 import type { TranslationCode } from "@/lib/bible/translations";
 import type { PreferredVoiceGender } from "@/lib/speech/select-voice";
 import { speakText } from "@/lib/speech/speak-text";
+import {
+  matchVoiceCommand,
+  voiceCommandFeedback,
+  voiceCommandLabel,
+  type VoiceCommand,
+} from "@/lib/speech/voice-commands";
 
 type Verse = {
   verse: number;
   text: string;
 };
 
-type NextChapter = {
+type ChapterLink = {
   book: string;
   chapter: number;
   href: string;
@@ -39,7 +43,8 @@ type ChapterVoicePanelProps = {
   verses: Verse[];
   preferredVoice: PreferredVoiceGender;
   userId: string;
-  nextChapter: NextChapter | null;
+  nextChapter: ChapterLink | null;
+  previousChapter: ChapterLink | null;
 };
 
 type ClarifyStatus = "idle" | "loading" | "speaking" | "ready" | "error";
@@ -52,9 +57,13 @@ export function ChapterVoicePanel({
   preferredVoice,
   userId,
   nextChapter,
+  previousChapter,
 }: ChapterVoicePanelProps) {
+  const router = useRouter();
   const [pauseRequestId, setPauseRequestId] = useState(0);
   const [resumeRequestId, setResumeRequestId] = useState(0);
+  const [repeatRequestId, setRepeatRequestId] = useState(0);
+  const [stopListeningRequestId, setStopListeningRequestId] = useState(0);
   const [currentVerse, setCurrentVerse] = useState<number | null>(null);
   const [acceptTranscripts, setAcceptTranscripts] = useState(true);
   const [clarifyStatus, setClarifyStatus] = useState<ClarifyStatus>("idle");
@@ -63,20 +72,51 @@ export function ChapterVoicePanel({
   const [clarifyError, setClarifyError] = useState<string | null>(null);
   const [endStatus, setEndStatus] = useState<ChapterEndStatus>("idle");
   const [endError, setEndError] = useState<string | null>(null);
+  const [lastCommandLabel, setLastCommandLabel] = useState<string | null>(null);
 
   const busyRef = useRef(false);
   const endStatusRef = useRef<ChapterEndStatus>("idle");
   const currentVerseRef = useRef<number | null>(null);
   const preferredVoiceRef = useRef(preferredVoice);
+  const nextChapterRef = useRef(nextChapter);
+  const previousChapterRef = useRef(previousChapter);
 
   preferredVoiceRef.current = preferredVoice;
   currentVerseRef.current = currentVerse;
   endStatusRef.current = endStatus;
+  nextChapterRef.current = nextChapter;
+  previousChapterRef.current = previousChapter;
 
   const handleCurrentVerseChange = useCallback((verse: number | null) => {
     setCurrentVerse(verse);
     currentVerseRef.current = verse;
   }, []);
+
+  const speakFeedback = useCallback(
+    (text: string, onDone?: () => void) => {
+      if (!text) {
+        onDone?.();
+        return;
+      }
+      busyRef.current = true;
+      setAcceptTranscripts(false);
+      speakText({
+        text,
+        preferredVoice: preferredVoiceRef.current,
+        onEnd: () => {
+          busyRef.current = false;
+          setAcceptTranscripts(true);
+          onDone?.();
+        },
+        onError: () => {
+          busyRef.current = false;
+          setAcceptTranscripts(true);
+          onDone?.();
+        },
+      });
+    },
+    [],
+  );
 
   const beginUnderstandingCheck = useCallback(() => {
     if (endStatusRef.current === "asking" || endStatusRef.current === "saving") {
@@ -192,6 +232,74 @@ export function ChapterVoicePanel({
     });
   }, []);
 
+  const executeCommand = useCallback(
+    (command: VoiceCommand) => {
+      setLastCommandLabel(voiceCommandLabel(command));
+
+      if (command === "confirm_understanding") {
+        void confirmUnderstood();
+        return;
+      }
+      if (command === "decline_understanding") {
+        declineUnderstood();
+        return;
+      }
+
+      if (command === "pause") {
+        setPauseRequestId((value) => value + 1);
+        speakFeedback(voiceCommandFeedback(command));
+        return;
+      }
+
+      if (command === "resume") {
+        if (clarifyStatus === "ready" || clarifyStatus === "error") {
+          setClarifyStatus("idle");
+        }
+        speakFeedback(voiceCommandFeedback(command), () => {
+          setResumeRequestId((value) => value + 1);
+        });
+        return;
+      }
+
+      if (command === "repeat") {
+        speakFeedback(voiceCommandFeedback(command), () => {
+          setRepeatRequestId((value) => value + 1);
+        });
+        return;
+      }
+
+      if (command === "stop_listening") {
+        setStopListeningRequestId((value) => value + 1);
+        speakFeedback(voiceCommandFeedback(command));
+        return;
+      }
+
+      if (command === "next_chapter") {
+        const target = nextChapterRef.current;
+        if (!target) {
+          speakFeedback("There is no next chapter.");
+          return;
+        }
+        speakFeedback(voiceCommandFeedback(command), () => {
+          router.push(target.href);
+        });
+        return;
+      }
+
+      if (command === "previous_chapter") {
+        const target = previousChapterRef.current;
+        if (!target) {
+          speakFeedback("There is no previous chapter.");
+          return;
+        }
+        speakFeedback(voiceCommandFeedback(command), () => {
+          router.push(target.href);
+        });
+      }
+    },
+    [clarifyStatus, confirmUnderstood, declineUnderstood, router, speakFeedback],
+  );
+
   const runClarify = useCallback(
     async (spokenQuestion: string) => {
       busyRef.current = true;
@@ -284,17 +392,19 @@ export function ChapterVoicePanel({
       }
 
       const trimmed = text.trim();
+      const understandingPromptActive = endStatusRef.current === "asking";
 
-      if (endStatusRef.current === "asking") {
-        const answer = parseUnderstandingAnswer(trimmed);
-        if (answer === "yes") {
-          void confirmUnderstood();
-          return;
-        }
-        if (answer === "no") {
-          declineUnderstood();
-          return;
-        }
+      const command = matchVoiceCommand(trimmed, {
+        understandingPromptActive,
+      });
+
+      if (command) {
+        executeCommand(command);
+        return;
+      }
+
+      // While the understanding prompt is open, ignore non-command speech.
+      if (understandingPromptActive) {
         return;
       }
 
@@ -302,7 +412,7 @@ export function ChapterVoicePanel({
         return;
       }
 
-      // Barge-in: pause chapter TTS when the reader speaks.
+      // Barge-in: pause chapter TTS when the reader asks a question.
       setPauseRequestId((value) => value + 1);
 
       if (!isPlausibleClarifyTranscript(trimmed)) {
@@ -311,13 +421,7 @@ export function ChapterVoicePanel({
 
       void runClarify(trimmed);
     },
-    [
-      acceptTranscripts,
-      confirmUnderstood,
-      declineUnderstood,
-      runClarify,
-      verses,
-    ],
+    [acceptTranscripts, executeCommand, runClarify, verses],
   );
 
   function handleResumeReading() {
@@ -340,13 +444,21 @@ export function ChapterVoicePanel({
         preferredVoice={preferredVoice}
         pauseRequestId={pauseRequestId}
         resumeRequestId={resumeRequestId}
+        repeatRequestId={repeatRequestId}
         onCurrentVerseChange={handleCurrentVerseChange}
         onChapterEnd={beginUnderstandingCheck}
       />
       <ListeningControls
         onFinalTranscript={handleFinalTranscript}
         acceptTranscripts={acceptTranscripts}
+        stopRequestId={stopListeningRequestId}
       />
+
+      {lastCommandLabel ? (
+        <p className="mt-3 text-sm text-neutral-600" aria-live="polite">
+          Command: {lastCommandLabel}
+        </p>
+      ) : null}
 
       {clarifyStatus !== "idle" || question || clarification || clarifyError ? (
         <div className="mt-6 border-t border-neutral-200 pt-6">

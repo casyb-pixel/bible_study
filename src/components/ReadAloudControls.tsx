@@ -28,6 +28,8 @@ type ReadAloudControlsProps = {
   pauseRequestId?: number;
   /** Increment to resume chapter reading from the current verse. */
   resumeRequestId?: number;
+  /** Increment to re-read the current (or last) verse. */
+  repeatRequestId?: number;
   onCurrentVerseChange?: (verse: number | null) => void;
   /** Fired once when TTS finishes the last verse of the chapter. */
   onChapterEnd?: () => void;
@@ -47,6 +49,7 @@ export function ReadAloudControls({
   preferredVoice,
   pauseRequestId = 0,
   resumeRequestId = 0,
+  repeatRequestId = 0,
   onCurrentVerseChange,
   onChapterEnd,
 }: ReadAloudControlsProps) {
@@ -63,6 +66,7 @@ export function ReadAloudControls({
   const playbackStateRef = useRef<PlaybackState>("idle");
   const lastPauseRequestRef = useRef(0);
   const lastResumeRequestRef = useRef(0);
+  const lastRepeatRequestRef = useRef(0);
   const readingSpeedRef = useRef<ReadingSpeed>("normal");
   const onCurrentVerseChangeRef = useRef(onCurrentVerseChange);
   const onChapterEndRef = useRef(onChapterEnd);
@@ -145,6 +149,33 @@ export function ReadAloudControls({
     // speakFrom is stable enough via refs; avoid re-binding on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resumeRequestId]);
+
+  // Re-read the current verse from the start.
+  useEffect(() => {
+    if (repeatRequestId <= lastRepeatRequestRef.current) {
+      return;
+    }
+    lastRepeatRequestRef.current = repeatRequestId;
+
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      return;
+    }
+
+    const list = versesRef.current;
+    if (list.length === 0) {
+      return;
+    }
+
+    const index =
+      indexRef.current >= 0 && indexRef.current < list.length
+        ? indexRef.current
+        : 0;
+
+    window.speechSynthesis.cancel();
+    speakingRef.current = true;
+    speakFrom(index);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repeatRequestId]);
 
   function getVoice(): SpeechSynthesisVoice | null {
     if (!("speechSynthesis" in window)) {
