@@ -10,7 +10,9 @@ import {
 } from "@/lib/bible/books";
 import { ChapterVoicePanel } from "@/components/ChapterVoicePanel";
 import { JumpToChapterForm } from "@/components/JumpToChapterForm";
+import { RelatedHistoricalTexts } from "@/components/RelatedHistoricalTexts";
 import { ChapterFetchError, getChapter } from "@/lib/bible/get-chapter";
+import { getHistoricalTextsForChapter } from "@/lib/historical";
 import { upsertProgress } from "@/lib/progress";
 import { buildUserQuery, resolveAppUser } from "@/lib/users";
 
@@ -144,6 +146,10 @@ export default async function ReadChapterPage({
 
   const previous = getPreviousChapter(chapterText.book, chapterText.chapter);
   const next = getNextChapter(chapterText.book, chapterText.chapter);
+  const relatedHistorical = getHistoricalTextsForChapter(
+    chapterText.book,
+    chapterText.chapter,
+  );
 
   return (
     <main className="mx-auto min-h-screen max-w-xl px-6 py-14 sm:px-8 sm:py-16">
@@ -226,6 +232,11 @@ export default async function ReadChapterPage({
           {chapterText.copyright}
         </p>
       ) : null}
+
+      <RelatedHistoricalTexts
+        texts={relatedHistorical}
+        username={appUser.username}
+      />
 
       <nav className="mt-16 flex items-center justify-between gap-6 border-t border-neutral-200 pt-8 text-sm text-neutral-700">
         {previous ? (

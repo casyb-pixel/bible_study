@@ -152,6 +152,24 @@ export default async function Home({ searchParams }: HomePageProps) {
           />
         </div>
 
+        <div className="mt-10 border-t border-neutral-200 pt-8">
+          <p className="text-sm font-medium text-neutral-800">
+            Historical texts
+          </p>
+          <p className="mt-2 text-sm leading-6 text-neutral-600">
+            Non-canonical writings referenced by Scripture, labeled for research
+            only. Scripture alone is authoritative.
+          </p>
+          <p className="mt-4">
+            <Link
+              href={`/historical?${buildUserQuery(appUser.username)}`}
+              className="inline-block border border-neutral-400 px-4 py-2 text-sm text-neutral-800 hover:bg-neutral-100"
+            >
+              Open historical texts
+            </Link>
+          </p>
+        </div>
+
         <p className="mt-6 text-sm text-neutral-600">
           <Link
             href="/"
