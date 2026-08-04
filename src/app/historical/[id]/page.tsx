@@ -3,7 +3,10 @@ import { notFound } from "next/navigation";
 
 import { HistoricalReadAloud } from "@/components/HistoricalReadAloud";
 import { HistoricalWarning } from "@/components/HistoricalWarning";
-import { getHistoricalText } from "@/lib/historical";
+import {
+  getAdjacentHistoricalTexts,
+  getHistoricalText,
+} from "@/lib/historical";
 import { buildUserQuery, resolveAppUser } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +35,7 @@ export default async function HistoricalDetailPage({
   const appUser = await resolveAppUser(query);
   const userQuery = appUser ? `?${buildUserQuery(appUser.username)}` : "";
   const preferredTtsVoice = appUser?.preferredTtsVoice ?? "leo";
+  const { previous, next } = getAdjacentHistoricalTexts(text.id);
 
   return (
     <main className="mx-auto min-h-screen max-w-xl bg-neutral-50 px-6 py-14 sm:px-8 sm:py-16">
@@ -46,11 +50,28 @@ export default async function HistoricalDetailPage({
         <p className="mt-5 text-sm leading-6 text-neutral-700">
           {text.description}
         </p>
-        <p className="mt-3 text-sm text-neutral-600">
-          Related Scripture references:{" "}
-          {text.relatedCanonicalReferences.map((ref) => ref.label).join("; ")}
-        </p>
-        <p className="mt-2 text-xs leading-5 text-neutral-500">
+        <div className="mt-4">
+          <p className="text-xs uppercase tracking-wide text-neutral-500">
+            Related Scripture
+          </p>
+          <ul className="mt-2 space-y-1 text-sm text-neutral-700">
+            {text.relatedCanonicalReferences.map((ref) => (
+              <li key={`${ref.book}-${ref.chapter}-${ref.label}`}>
+                {appUser ? (
+                  <Link
+                    href={`/read/${encodeURIComponent(ref.book)}/${ref.chapter}${userQuery}`}
+                    className="underline underline-offset-4 hover:text-neutral-900"
+                  >
+                    {ref.label}
+                  </Link>
+                ) : (
+                  <span>{ref.label}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-neutral-500">
           Source note: {text.sourceNote}
         </p>
 
@@ -82,7 +103,29 @@ export default async function HistoricalDetailPage({
         )}
       </div>
 
-      <nav className="mt-16 space-y-3 border-t border-neutral-300 pt-8 text-sm text-neutral-700">
+      <nav className="mt-16 space-y-4 border-t border-neutral-300 pt-8 text-sm text-neutral-700">
+        <div className="flex items-center justify-between gap-4">
+          {previous ? (
+            <Link
+              href={`/historical/${encodeURIComponent(previous.id)}${userQuery}`}
+              className="underline underline-offset-4 hover:text-neutral-900"
+            >
+              Previous: {previous.title}
+            </Link>
+          ) : (
+            <span />
+          )}
+          {next ? (
+            <Link
+              href={`/historical/${encodeURIComponent(next.id)}${userQuery}`}
+              className="text-right underline underline-offset-4 hover:text-neutral-900"
+            >
+              Next: {next.title}
+            </Link>
+          ) : (
+            <span />
+          )}
+        </div>
         <p>
           <Link
             href={`/historical${userQuery}`}
@@ -91,18 +134,6 @@ export default async function HistoricalDetailPage({
             All historical texts
           </Link>
         </p>
-        {text.relatedCanonicalReferences[0] ? (
-          <p>
-            <Link
-              href={`/read/${encodeURIComponent(text.relatedCanonicalReferences[0].book)}/${text.relatedCanonicalReferences[0].chapter}${userQuery}`}
-              className="underline underline-offset-4 hover:text-neutral-900"
-            >
-              Return to{" "}
-              {text.relatedCanonicalReferences[0].book}{" "}
-              {text.relatedCanonicalReferences[0].chapter}
-            </Link>
-          </p>
-        ) : null}
         <p>
           <Link
             href={appUser ? `/?${buildUserQuery(appUser.username)}` : "/"}

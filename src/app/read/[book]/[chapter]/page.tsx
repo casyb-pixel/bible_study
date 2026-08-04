@@ -13,8 +13,8 @@ import { RelatedHistoricalTexts } from "@/components/RelatedHistoricalTexts";
 import { ChapterFetchError, getChapter } from "@/lib/bible/get-chapter";
 import { getHistoricalTextsForChapter } from "@/lib/historical";
 import { listVerseMarks } from "@/lib/marks";
-import { upsertProgress } from "@/lib/progress";
-import { buildUserQuery, resolveAppUser } from "@/lib/users";
+import { openChapterProgress } from "@/lib/progress";
+import { buildUserQuery, firstSearchParam, resolveAppUser } from "@/lib/users";
 import type { VerseMarkRecord } from "@/lib/verse-marks";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +28,7 @@ type ReadChapterPageProps = {
     user?: string | string[];
     username?: string | string[];
     userId?: string | string[];
+    autostart?: string | string[];
   }>;
 };
 
@@ -68,6 +69,7 @@ export default async function ReadChapterPage({
   const book = resolveBookName(decodeURIComponent(bookParam));
   const chapter = Number(chapterParam);
   const appUser = await resolveAppUser(query);
+  const autoStartReading = firstSearchParam(query.autostart) === "1";
 
   if (
     !book ||
@@ -135,15 +137,21 @@ export default async function ReadChapterPage({
   let progressError = false;
 
   try {
-    savedPosition = await upsertProgress({
+    savedPosition = await openChapterProgress({
       userId: appUser.id,
       book: chapterText.book,
       chapter: chapterText.chapter,
-      verse: 1,
     });
   } catch {
     progressError = true;
   }
+
+  const resumeVerse =
+    savedPosition &&
+    savedPosition.currentBook === chapterText.book &&
+    savedPosition.currentChapter === chapterText.chapter
+      ? Math.max(1, savedPosition.currentVerse)
+      : 1;
 
   const previous = getPreviousChapter(chapterText.book, chapterText.chapter);
   const next = getNextChapter(chapterText.book, chapterText.chapter);
@@ -173,6 +181,8 @@ export default async function ReadChapterPage({
         preferredTtsVoice={appUser.preferredTtsVoice}
         userId={appUser.id}
         username={appUser.username}
+        initialVerse={resumeVerse}
+        autoStart={autoStartReading}
         initialMarks={initialMarks}
         nextChapter={
           next
@@ -233,6 +243,8 @@ export default async function ReadChapterPage({
       <RelatedHistoricalTexts
         texts={relatedHistorical}
         username={appUser.username}
+        book={chapterText.book}
+        chapter={chapterText.chapter}
       />
 
       <nav className="mt-16 flex items-center justify-between gap-6 border-t border-neutral-200 pt-8 text-sm text-neutral-700">

@@ -23,6 +23,8 @@ export type AskClarifyPhase =
   | "ready"
   | "error";
 
+export type AskListenMode = "question" | "understanding";
+
 type AskQuestionControlProps = {
   /**
    * Route a finalized utterance. Must run the short-command matcher first;
@@ -37,6 +39,15 @@ type AskQuestionControlProps = {
   onListeningCue?: (onDone: () => void) => void;
   clarifyPhase?: AskClarifyPhase;
   clarifyError?: string | null;
+  /**
+   * Increment to open a single recognition session without tapping
+   * (e.g. after the chapter-end understanding question).
+   */
+  listenRequestId?: number;
+  /** When true, skip the spoken “Listening.” cue and open the mic directly. */
+  skipListeningCue?: boolean;
+  /** Changes bottom-bar copy for chapter-end yes/no answers. */
+  listenMode?: AskListenMode;
 };
 
 type LocalPhase = "idle" | "cue" | "starting" | "listening" | "error";
@@ -48,6 +59,9 @@ export function AskQuestionControl({
   onListeningCue,
   clarifyPhase = "idle",
   clarifyError = null,
+  listenRequestId = 0,
+  skipListeningCue = false,
+  listenMode = "question",
 }: AskQuestionControlProps) {
   const [localPhase, setLocalPhase] = useState<LocalPhase>("idle");
   const [heardText, setHeardText] = useState("");
@@ -58,15 +72,18 @@ export function AskQuestionControl({
   const activeRef = useRef(false);
   const emittedRef = useRef(false);
   const cancelledRef = useRef(false);
+  const lastListenRequestRef = useRef(0);
   const onFinalTranscriptRef = useRef(onFinalTranscript);
   const onListenStartRef = useRef(onListenStart);
   const onListeningCueRef = useRef(onListeningCue);
   const onCancelRef = useRef(onCancel);
+  const skipListeningCueRef = useRef(skipListeningCue);
 
   onFinalTranscriptRef.current = onFinalTranscript;
   onListenStartRef.current = onListenStart;
   onListeningCueRef.current = onListeningCue;
   onCancelRef.current = onCancel;
+  skipListeningCueRef.current = skipListeningCue;
 
   useEffect(() => {
     setIsSupported(isSpeechRecognitionSupported());
@@ -287,7 +304,7 @@ export function AskQuestionControl({
     startRecognitionInstance();
   }
 
-  function handleAsk() {
+  function startListenSession(options?: { skipCue?: boolean }) {
     if (
       localPhase === "cue" ||
       localPhase === "starting" ||
@@ -303,8 +320,10 @@ export function AskQuestionControl({
     setHeardText("");
     onListenStartRef.current?.();
 
+    const shouldSkipCue =
+      options?.skipCue === true || skipListeningCueRef.current;
     const cue = onListeningCueRef.current;
-    if (cue) {
+    if (!shouldSkipCue && cue) {
       setLocalPhase("cue");
       cue(() => {
         if (cancelledRef.current) {
@@ -318,6 +337,40 @@ export function AskQuestionControl({
 
     void beginMicSession();
   }
+
+  function handleAsk() {
+    startListenSession();
+  }
+
+  useEffect(() => {
+    if (listenRequestId <= lastListenRequestRef.current) {
+      return;
+    }
+    lastListenRequestRef.current = listenRequestId;
+    startListenSession({ skipCue: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- trigger only on request id
+  }, [listenRequestId]);
+
+  // Stop an answer-listen session when the parent leaves understanding mode
+  // (button yes/no, save, or decline).
+  useEffect(() => {
+    if (listenMode === "understanding") {
+      return;
+    }
+    if (!activeRef.current && localPhase === "idle") {
+      return;
+    }
+    if (
+      localPhase === "cue" ||
+      localPhase === "starting" ||
+      localPhase === "listening"
+    ) {
+      cancelledRef.current = true;
+      abortRecognition();
+      setLocalPhase("idle");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- react to mode exit only
+  }, [listenMode]);
 
   function handleCancel() {
     cancelledRef.current = true;
@@ -335,20 +388,31 @@ export function AskQuestionControl({
   const isProcessingUi = clarifyPhase === "processing";
   const isSpeakingUi = clarifyPhase === "speaking";
   const showCancel = isListeningUi || isProcessingUi || isSpeakingUi;
+  const understandingMode = listenMode === "understanding";
 
   let primaryLabel = "Ask a question";
   let statusLine: string | null = null;
 
   if (isListeningUi) {
-    primaryLabel =
-      localPhase === "cue"
-        ? "Preparing…"
-        : localPhase === "starting"
+    if (understandingMode) {
+      primaryLabel =
+        localPhase === "starting" || localPhase === "cue"
           ? "Starting…"
-          : "Listening…";
-    statusLine = heardText
-      ? `Heard: ${heardText}`
-      : "Speak a short command or your question, then pause.";
+          : "Listening for your answer…";
+      statusLine = heardText
+        ? `Heard: ${heardText}`
+        : "Say yes / I understand, or not yet / no.";
+    } else {
+      primaryLabel =
+        localPhase === "cue"
+          ? "Preparing…"
+          : localPhase === "starting"
+            ? "Starting…"
+            : "Listening…";
+      statusLine = heardText
+        ? `Heard: ${heardText}`
+        : "Speak a short command or your question, then pause.";
+    }
   } else if (isProcessingUi) {
     primaryLabel = "Getting clarification…";
     statusLine = heardText ? `Question: ${heardText}` : null;
@@ -357,7 +421,9 @@ export function AskQuestionControl({
     statusLine = null;
   } else if (localPhase === "error" || clarifyPhase === "error") {
     primaryLabel = "Ask a question";
-    statusLine = errorMessage || clarifyError;
+    statusLine = understandingMode
+      ? `${errorMessage || clarifyError || "Could not hear an answer."} Use the buttons above, or tap Ask a question to try again.`
+      : errorMessage || clarifyError;
   } else if (clarifyPhase === "ready") {
     primaryLabel = "Ask a question";
     statusLine = "Reply finished. Resume reading when ready.";

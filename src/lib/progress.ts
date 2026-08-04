@@ -76,3 +76,30 @@ export async function upsertProgress(input: {
 
   return created;
 }
+
+/**
+ * Open a canonical chapter without wiping the saved verse when the user
+ * returns to the same book + chapter.
+ */
+export async function openChapterProgress(input: {
+  userId: string;
+  book: string;
+  chapter: number;
+}): Promise<ProgressRecord> {
+  const book = input.book.trim();
+  const existing = await getProgress(input.userId);
+  const sameChapter =
+    existing != null &&
+    existing.currentBook === book &&
+    existing.currentChapter === input.chapter;
+
+  const verse =
+    sameChapter && existing.currentVerse > 0 ? existing.currentVerse : 1;
+
+  return upsertProgress({
+    userId: input.userId,
+    book,
+    chapter: input.chapter,
+    verse,
+  });
+}

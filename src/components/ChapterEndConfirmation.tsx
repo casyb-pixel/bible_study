@@ -13,6 +13,8 @@ type ChapterEndConfirmationProps = {
   nextHref: string | null;
   nextLabel: string | null;
   error: string | null;
+  /** True while the bottom control is listening for a spoken yes/no. */
+  listeningForAnswer?: boolean;
   onBeginCheck: () => void;
   onYes: () => void;
   onNo: () => void;
@@ -23,6 +25,7 @@ export function ChapterEndConfirmation({
   nextHref,
   nextLabel,
   error,
+  listeningForAnswer = false,
   onBeginCheck,
   onYes,
   onNo,
@@ -74,9 +77,13 @@ export function ChapterEndConfirmation({
           </div>
           {status === "saving" ? (
             <p className="mt-3 text-sm text-neutral-600">Recording…</p>
+          ) : listeningForAnswer ? (
+            <p className="mt-3 text-sm text-neutral-600" aria-live="polite">
+              Listening for your answer… Say yes / I understand, or not yet.
+            </p>
           ) : (
             <p className="mt-3 text-sm text-neutral-500">
-              You may answer by voice if listening is enabled.
+              Answer by voice at the bottom, or use the buttons here.
             </p>
           )}
         </>
@@ -107,7 +114,7 @@ export function ChapterEndConfirmation({
       {status === "declined" ? (
         <>
           <p className="mt-3 text-sm text-neutral-800">
-            Remain here. You may ask questions or read the chapter again.
+            You can ask a question or read the chapter again.
           </p>
           <button
             type="button"

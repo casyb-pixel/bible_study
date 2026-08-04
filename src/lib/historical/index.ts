@@ -29,3 +29,19 @@ export function getHistoricalTextsForChapter(
     ),
   );
 }
+
+/** Previous / next entries in the historical catalog (research nav only). */
+export function getAdjacentHistoricalTexts(id: string): {
+  previous: HistoricalText | null;
+  next: HistoricalText | null;
+} {
+  const index = HISTORICAL_TEXTS.findIndex((text) => text.id === id);
+  if (index < 0) {
+    return { previous: null, next: null };
+  }
+  return {
+    previous: index > 0 ? HISTORICAL_TEXTS[index - 1] : null,
+    next:
+      index < HISTORICAL_TEXTS.length - 1 ? HISTORICAL_TEXTS[index + 1] : null,
+  };
+}

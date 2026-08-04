@@ -28,6 +28,8 @@ type ChapterReadingViewProps = {
   preferredTtsVoice: GrokTtsVoiceId | string;
   userId: string;
   username: string;
+  initialVerse?: number;
+  autoStart?: boolean;
   nextChapter: ChapterLink | null;
   previousChapter: ChapterLink | null;
   initialMarks: VerseMarkRecord[];
@@ -42,6 +44,8 @@ export function ChapterReadingView({
   preferredTtsVoice,
   userId,
   username,
+  initialVerse = 1,
+  autoStart = false,
   nextChapter,
   previousChapter,
   initialMarks,
@@ -61,6 +65,8 @@ export function ChapterReadingView({
           verses={verses}
           preferredTtsVoice={preferredTtsVoice}
           userId={userId}
+          initialVerse={initialVerse}
+          autoStart={autoStart}
           nextChapter={nextChapter}
           previousChapter={previousChapter}
           onReadingVerseChange={setActiveVerse}

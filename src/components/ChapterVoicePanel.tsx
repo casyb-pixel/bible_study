@@ -48,11 +48,19 @@ type ChapterVoicePanelProps = {
   verses: Verse[];
   preferredTtsVoice: GrokTtsVoiceId | string;
   userId: string;
+  /** 1-based verse to resume TTS from. */
+  initialVerse?: number;
+  /** Begin reading aloud when this chapter mounts. */
+  autoStart?: boolean;
   nextChapter: ChapterLink | null;
   previousChapter: ChapterLink | null;
   /** Temporary reading-position indicator (spoken verse only). */
   onReadingVerseChange?: (verse: number | null) => void;
 };
+
+function withAutostart(href: string): string {
+  return href.includes("?") ? `${href}&autostart=1` : `${href}?autostart=1`;
+}
 
 type ClarifyStatus = "idle" | "loading" | "speaking" | "ready" | "error";
 
@@ -63,6 +71,8 @@ export function ChapterVoicePanel({
   verses,
   preferredTtsVoice,
   userId,
+  initialVerse = 1,
+  autoStart = false,
   nextChapter,
   previousChapter,
   onReadingVerseChange,
@@ -71,6 +81,8 @@ export function ChapterVoicePanel({
   const [pauseRequestId, setPauseRequestId] = useState(0);
   const [resumeRequestId, setResumeRequestId] = useState(0);
   const [repeatRequestId, setRepeatRequestId] = useState(0);
+  const [answerListenRequestId, setAnswerListenRequestId] = useState(0);
+  const [listeningForAnswer, setListeningForAnswer] = useState(false);
   const [currentVerse, setCurrentVerse] = useState<number | null>(null);
   const [clarifyStatus, setClarifyStatus] = useState<ClarifyStatus>("idle");
   const [question, setQuestion] = useState("");
@@ -131,6 +143,7 @@ export function ChapterVoicePanel({
     }
 
     busyRef.current = true;
+    setListeningForAnswer(false);
     setPauseRequestId((value) => value + 1);
     setEndStatus("asking");
     setEndError(null);
@@ -141,9 +154,12 @@ export function ChapterVoicePanel({
       preferredTtsVoice: preferredTtsVoiceRef.current,
       onEnd: () => {
         busyRef.current = false;
+        setListeningForAnswer(true);
+        setAnswerListenRequestId((value) => value + 1);
       },
       onError: () => {
         busyRef.current = false;
+        setListeningForAnswer(false);
       },
     });
   }, []);
@@ -154,6 +170,7 @@ export function ChapterVoicePanel({
     }
 
     busyRef.current = true;
+    setListeningForAnswer(false);
     setEndStatus("saving");
     endStatusRef.current = "saving";
     setEndError(null);
@@ -181,12 +198,25 @@ export function ChapterVoicePanel({
       setEndStatus("confirmed");
       endStatusRef.current = "confirmed";
 
-      const offer = nextChapter
-        ? "You may continue to the next chapter."
-        : "This is the last chapter in the reading order.";
+      const target = nextChapterRef.current;
+      if (target) {
+        speakText({
+          text: "Continuing to the next chapter.",
+          preferredTtsVoice: preferredTtsVoiceRef.current,
+          onEnd: () => {
+            busyRef.current = false;
+            router.push(withAutostart(target.href));
+          },
+          onError: () => {
+            busyRef.current = false;
+            router.push(withAutostart(target.href));
+          },
+        });
+        return;
+      }
 
       speakText({
-        text: offer,
+        text: "This is the last chapter in the reading order.",
         preferredTtsVoice: preferredTtsVoiceRef.current,
         onEnd: () => {
           busyRef.current = false;
@@ -205,20 +235,21 @@ export function ChapterVoicePanel({
           : "Completion could not be recorded.",
       );
     }
-  }, [book, chapter, nextChapter, userId]);
+  }, [book, chapter, router, userId]);
 
   const declineUnderstood = useCallback(() => {
     if (endStatusRef.current === "saving") {
       return;
     }
 
+    setListeningForAnswer(false);
     setEndStatus("declined");
     endStatusRef.current = "declined";
     setEndError(null);
     busyRef.current = true;
 
     speakText({
-      text: "Remain here. You may ask questions or read the chapter again.",
+      text: "Understood. You can ask a question or read again.",
       preferredTtsVoice: preferredTtsVoiceRef.current,
       onEnd: () => {
         busyRef.current = false;
@@ -411,6 +442,12 @@ export function ChapterVoicePanel({
   );
 
   const handleAskCancel = useCallback(() => {
+    if (endStatusRef.current === "asking") {
+      setListeningForAnswer(false);
+      // Keep the understanding prompt and on-screen buttons available.
+      return;
+    }
+
     clarifyAbortRef.current?.abort();
     clarifyAbortRef.current = null;
     stopGrokSpeech();
@@ -436,13 +473,19 @@ export function ChapterVoicePanel({
       });
 
       if (command) {
+        setListeningForAnswer(false);
         executeCommand(command);
         return "command";
       }
 
-      // While the understanding prompt is open, ignore non-command speech.
+      // While the understanding prompt is open, only accept yes/no answers.
       if (understandingPromptActive) {
-        speakFeedback("Please say yes or no.");
+        speakFeedback("Please say yes or no.", () => {
+          if (endStatusRef.current === "asking") {
+            setListeningForAnswer(true);
+            setAnswerListenRequestId((value) => value + 1);
+          }
+        });
         return "ignored";
       }
 
@@ -490,6 +533,9 @@ export function ChapterVoicePanel({
         chapter={chapter}
         verses={verses}
         preferredTtsVoice={preferredTtsVoice}
+        userId={userId}
+        initialVerse={initialVerse}
+        autoStart={autoStart}
         pauseRequestId={pauseRequestId}
         resumeRequestId={resumeRequestId}
         repeatRequestId={repeatRequestId}
@@ -504,6 +550,9 @@ export function ChapterVoicePanel({
         onCancel={handleAskCancel}
         clarifyPhase={askClarifyPhase}
         clarifyError={clarifyError}
+        listenRequestId={answerListenRequestId}
+        skipListeningCue={endStatus === "asking"}
+        listenMode={endStatus === "asking" ? "understanding" : "question"}
       />
 
       {lastCommandLabel ? (
@@ -567,6 +616,7 @@ export function ChapterVoicePanel({
         nextHref={nextChapter?.href ?? null}
         nextLabel={nextLabel}
         error={endError}
+        listeningForAnswer={listeningForAnswer}
         onBeginCheck={beginUnderstandingCheck}
         onYes={() => void confirmUnderstood()}
         onNo={declineUnderstood}
