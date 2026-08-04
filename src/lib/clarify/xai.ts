@@ -3,13 +3,30 @@ import { CLARIFY_SYSTEM_PROMPT } from "@/lib/clarify/prompt";
 const XAI_CHAT_URL = "https://api.x.ai/v1/chat/completions";
 const DEFAULT_MODEL = "grok-3-mini";
 
+export type ClarifyFailure = {
+  /** Safe human-readable summary for clients. */
+  error: string;
+  /** Upstream or local HTTP status, when known. */
+  status: number | null;
+  /** Actual xAI / network message when available. */
+  message: string;
+  /** Whether XAI_API_KEY is missing on the server. */
+  missingApiKey: boolean;
+};
+
 export class ClarifyApiError extends Error {
   status: number;
+  details: ClarifyFailure;
 
-  constructor(message: string, status = 502) {
-    super(message);
+  constructor(details: ClarifyFailure, httpStatus?: number) {
+    super(details.error);
     this.name = "ClarifyApiError";
-    this.status = status;
+    this.details = details;
+    this.status =
+      httpStatus ??
+      (typeof details.status === "number" && details.status >= 400
+        ? details.status
+        : 502);
   }
 }
 
@@ -24,9 +41,10 @@ type XaiChatResponse = {
     code?: string | number;
     type?: string;
   };
+  code?: string;
 };
 
-function shortSafeMessage(raw: string, maxLength = 180): string {
+function shortSafeMessage(raw: string, maxLength = 240): string {
   const cleaned = raw.replace(/\s+/g, " ").trim();
   if (!cleaned) {
     return "No error message provided";
@@ -45,6 +63,12 @@ function extractXaiErrorMessage(
   if (fromJson) {
     return shortSafeMessage(fromJson);
   }
+  if (typeof data?.code === "string" && data.code.trim()) {
+    const withCode = rawBody.trim()
+      ? `${data.code}: ${rawBody}`
+      : data.code;
+    return shortSafeMessage(withCode);
+  }
   if (rawBody.trim()) {
     return shortSafeMessage(rawBody);
   }
@@ -53,13 +77,22 @@ function extractXaiErrorMessage(
 
 export async function requestClarification(userMessage: string): Promise<string> {
   const apiKey = process.env.XAI_API_KEY?.trim();
-  const hasApiKey = Boolean(apiKey);
+  const missingApiKey = !apiKey;
 
   // Never log the key itself — presence only.
-  console.info("[clarify] XAI_API_KEY present:", hasApiKey);
+  console.info("[clarify] XAI_API_KEY present:", !missingApiKey);
 
-  if (!apiKey) {
-    throw new ClarifyApiError("XAI_API_KEY is missing on the server", 500);
+  if (missingApiKey) {
+    console.error("[clarify] XAI_API_KEY is missing on the server");
+    throw new ClarifyApiError(
+      {
+        error: "XAI_API_KEY is missing on the server",
+        status: null,
+        message: "XAI_API_KEY is missing on the server",
+        missingApiKey: true,
+      },
+      500,
+    );
   }
 
   const model = process.env.XAI_MODEL?.trim() || DEFAULT_MODEL;
@@ -81,8 +114,25 @@ export async function requestClarification(userMessage: string): Promise<string>
         ],
       }),
     });
-  } catch {
-    throw new ClarifyApiError("Could not reach the clarification service", 502);
+  } catch (networkError) {
+    const networkMessage =
+      networkError instanceof Error
+        ? shortSafeMessage(networkError.message)
+        : "Network request failed";
+
+    console.error("[clarify] xAI network request failed", {
+      message: networkMessage,
+    });
+
+    throw new ClarifyApiError(
+      {
+        error: `Network error calling xAI: ${networkMessage}`,
+        status: null,
+        message: networkMessage,
+        missingApiKey: false,
+      },
+      502,
+    );
   }
 
   const rawBody = await response.text();
@@ -94,21 +144,41 @@ export async function requestClarification(userMessage: string): Promise<string>
   }
 
   if (!response.ok) {
+    const detail = extractXaiErrorMessage(data, rawBody);
+
     console.error("[clarify] xAI API failed", {
       status: response.status,
       body: rawBody,
+      message: detail,
     });
 
-    const detail = extractXaiErrorMessage(data, rawBody);
     throw new ClarifyApiError(
-      `xAI returned ${response.status}: ${detail}`,
+      {
+        error: `xAI returned ${response.status}: ${detail}`,
+        status: response.status,
+        message: detail,
+        missingApiKey: false,
+      },
       response.status >= 400 && response.status < 600 ? response.status : 502,
     );
   }
 
   const content = data?.choices?.[0]?.message?.content?.trim();
   if (!content) {
-    throw new ClarifyApiError("Clarification service returned an empty reply", 502);
+    console.error("[clarify] xAI returned an empty reply", {
+      status: response.status,
+      body: rawBody,
+    });
+
+    throw new ClarifyApiError(
+      {
+        error: "Clarification service returned an empty reply",
+        status: response.status,
+        message: "Empty reply from xAI",
+        missingApiKey: false,
+      },
+      502,
+    );
   }
 
   return content;

@@ -223,10 +223,27 @@ export function ChapterVoicePanel({
         const data = (await response.json().catch(() => null)) as {
           clarification?: string;
           error?: string;
+          status?: number | null;
+          message?: string;
+          missingApiKey?: boolean;
         } | null;
 
         if (!response.ok || !data?.clarification) {
-          throw new Error(data?.error || "Clarification failed");
+          const parts: string[] = [];
+          if (data?.missingApiKey) {
+            parts.push("XAI_API_KEY is missing on the server");
+          }
+          if (typeof data?.status === "number") {
+            parts.push(`status ${data.status}`);
+          }
+          const detail =
+            data?.message?.trim() ||
+            data?.error?.trim() ||
+            `HTTP ${response.status}`;
+          if (detail && !parts.includes(detail)) {
+            parts.push(detail);
+          }
+          throw new Error(parts.join(" — ") || "Clarification failed");
         }
 
         setClarification(data.clarification);

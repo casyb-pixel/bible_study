@@ -1,8 +1,14 @@
+import { NextResponse } from "next/server";
+
 import {
   buildClarifyUserMessage,
   type ClarifyVerse,
 } from "@/lib/clarify/prompt";
-import { ClarifyApiError, requestClarification } from "@/lib/clarify/xai";
+import {
+  ClarifyApiError,
+  requestClarification,
+  type ClarifyFailure,
+} from "@/lib/clarify/xai";
 import {
   isNonEmptyString,
   isPositiveInt,
@@ -13,6 +19,10 @@ import {
 import { isTranslationCode } from "@/lib/bible/translations";
 
 export const dynamic = "force-dynamic";
+
+function jsonClarifyFailure(failure: ClarifyFailure, httpStatus: number) {
+  return NextResponse.json(failure, { status: httpStatus });
+}
 
 type ClarifyBody = {
   question?: unknown;
@@ -85,8 +95,23 @@ export async function POST(request: Request) {
     return jsonOk({ clarification });
   } catch (error) {
     if (error instanceof ClarifyApiError) {
-      return jsonError(error.message, error.status);
+      console.error("[clarify] request failed", error.details);
+      return jsonClarifyFailure(error.details, error.status);
     }
-    return jsonError("Unexpected clarification error", 500);
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unexpected clarification error";
+    console.error("[clarify] unexpected error", { message });
+    return jsonClarifyFailure(
+      {
+        error: message,
+        status: 500,
+        message,
+        missingApiKey: !process.env.XAI_API_KEY?.trim(),
+      },
+      500,
+    );
   }
 }
