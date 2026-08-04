@@ -1,3 +1,5 @@
+import "server-only";
+
 import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/db";
@@ -8,9 +10,21 @@ import {
   isTranslationCode,
   type TranslationCode,
 } from "@/lib/bible/translations";
+import {
+  buildUserQuery,
+  firstSearchParam,
+  isValidUsernameFormat,
+  normalizeUsername,
+  USERNAME_PATTERN,
+} from "@/lib/user-identity";
 
-/** 3–32 chars: letters, numbers, underscore, hyphen. */
-export const USERNAME_PATTERN = /^[a-zA-Z0-9_-]{3,32}$/;
+export {
+  buildUserQuery,
+  firstSearchParam,
+  isValidUsernameFormat,
+  normalizeUsername,
+  USERNAME_PATTERN,
+};
 
 export type AppUser = {
   id: string;
@@ -18,22 +32,6 @@ export type AppUser = {
   preferredVoice: "male" | "female";
   preferredTranslation: TranslationCode;
 };
-
-export function firstSearchParam(
-  value?: string | string[],
-): string | undefined {
-  const raw = Array.isArray(value) ? value[0] : value;
-  const trimmed = raw?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : undefined;
-}
-
-export function normalizeUsername(input: string): string {
-  return input.trim().toLowerCase();
-}
-
-export function isValidUsernameFormat(input: string): boolean {
-  return USERNAME_PATTERN.test(input.trim());
-}
 
 export async function getUserById(id: string): Promise<AppUser | null> {
   const rows = await db
@@ -152,8 +150,4 @@ export async function resolveAppUser(params: {
   }
 
   return null;
-}
-
-export function buildUserQuery(username: string): string {
-  return `user=${encodeURIComponent(normalizeUsername(username))}`;
 }

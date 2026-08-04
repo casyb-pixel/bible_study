@@ -8,7 +8,7 @@ import {
   getBookChapterCount,
   isValidChapter,
 } from "@/lib/bible/books";
-import { buildUserQuery } from "@/lib/users";
+import { buildUserQuery } from "@/lib/user-identity";
 
 type JumpToChapterFormProps = {
   username: string;
