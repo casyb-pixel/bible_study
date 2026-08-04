@@ -8,7 +8,7 @@ import {
   isValidChapter,
   resolveBookName,
 } from "@/lib/bible/books";
-import { ReadAloudControls } from "@/components/ReadAloudControls";
+import { ChapterVoicePanel } from "@/components/ChapterVoicePanel";
 import { ChapterFetchError, getChapter } from "@/lib/bible/get-chapter";
 import { upsertProgress } from "@/lib/progress";
 import { buildUserQuery, resolveAppUser } from "@/lib/users";
@@ -165,7 +165,7 @@ export default async function ReadChapterPage({
           </p>
         ) : null}
 
-        <ReadAloudControls
+        <ChapterVoicePanel
           book={chapterText.book}
           chapter={chapterText.chapter}
           verses={chapterText.verses}

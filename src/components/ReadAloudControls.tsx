@@ -17,6 +17,8 @@ type ReadAloudControlsProps = {
   chapter: number;
   verses: Verse[];
   preferredVoice: PreferredVoiceGender;
+  /** Increment to request a barge-in pause from listening. */
+  pauseRequestId?: number;
 };
 
 type PlaybackState = "idle" | "playing" | "paused";
@@ -30,6 +32,7 @@ export function ReadAloudControls({
   chapter,
   verses,
   preferredVoice,
+  pauseRequestId = 0,
 }: ReadAloudControlsProps) {
   const [playbackState, setPlaybackState] = useState<PlaybackState>("idle");
   const [currentVerse, setCurrentVerse] = useState<number | null>(null);
@@ -40,9 +43,12 @@ export function ReadAloudControls({
   const preferredVoiceRef = useRef(preferredVoice);
   const versesRef = useRef(verses);
   const speakingRef = useRef(false);
+  const playbackStateRef = useRef<PlaybackState>("idle");
+  const lastPauseRequestRef = useRef(0);
 
   preferredVoiceRef.current = preferredVoice;
   versesRef.current = verses;
+  playbackStateRef.current = playbackState;
 
   useEffect(() => {
     setIsSupported(typeof window !== "undefined" && "speechSynthesis" in window);
@@ -67,6 +73,24 @@ export function ReadAloudControls({
       window.speechSynthesis.cancel();
     }
   }, [book, chapter, verses]);
+
+  // Barge-in: pause TTS when listening detects speech.
+  useEffect(() => {
+    if (pauseRequestId <= lastPauseRequestRef.current) {
+      return;
+    }
+    lastPauseRequestRef.current = pauseRequestId;
+
+    if (
+      playbackStateRef.current === "playing" &&
+      typeof window !== "undefined" &&
+      "speechSynthesis" in window
+    ) {
+      window.speechSynthesis.pause();
+      speakingRef.current = false;
+      setPlaybackState("paused");
+    }
+  }, [pauseRequestId]);
 
   function getVoice(): SpeechSynthesisVoice | null {
     if (!("speechSynthesis" in window)) {
