@@ -1,12 +1,3 @@
-import {
-  APIError,
-  BuildIDError,
-  InvalidReferenceError,
-  LSBibleError,
-} from "lsbible";
-
-import { isBuildIdPinned } from "./client";
-
 export class ChapterFetchError extends Error {
   readonly causeName: string;
   readonly retryable: boolean;
@@ -31,53 +22,28 @@ export function toChapterFetchError(error: unknown): ChapterFetchError {
     return error;
   }
 
-  if (error instanceof InvalidReferenceError) {
-    return new ChapterFetchError(error.message, {
-      causeName: error.name,
-      retryable: false,
-    });
-  }
-
-  if (error instanceof BuildIDError) {
-    if (isRateLimitedMessage(error.message)) {
-      return new ChapterFetchError(
-        isBuildIdPinned()
-          ? "The Scripture source is rate-limiting requests. Wait a moment and try again."
-          : "The Scripture source is rate-limiting build ID lookups (HTTP 429). Set the LSB_BUILD_ID environment variable on the server, then redeploy, and try again.",
-        { causeName: error.name, retryable: true },
-      );
-    }
-
-    return new ChapterFetchError(
-      isBuildIdPinned()
-        ? "The Scripture source could not be reached with the configured build ID. Check LSB_BUILD_ID and try again."
-        : "The Scripture source build ID could not be determined. Set LSB_BUILD_ID on the server to avoid automatic lookup, then redeploy.",
-      { causeName: error.name, retryable: true },
-    );
-  }
-
-  if (error instanceof APIError) {
-    if (isRateLimitedMessage(error.message)) {
-      return new ChapterFetchError(
-        "The Scripture source is rate-limiting requests (HTTP 429). Wait a moment and try again.",
-        { causeName: error.name, retryable: true },
-      );
-    }
-
-    return new ChapterFetchError(
-      "The Scripture source returned an error. Try again in a moment.",
-      { causeName: error.name, retryable: true },
-    );
-  }
-
-  if (error instanceof LSBibleError) {
-    return new ChapterFetchError(
-      "The Scripture source is temporarily unavailable.",
-      { causeName: error.name, retryable: true },
-    );
-  }
-
   if (error instanceof Error) {
+    if (/API_BIBLE_KEY is not set/i.test(error.message)) {
+      return new ChapterFetchError(
+        "Scripture API key is not configured. Set API_BIBLE_KEY on the server.",
+        { causeName: "MissingApiKey", retryable: false },
+      );
+    }
+
+    if (isRateLimitedMessage(error.message)) {
+      return new ChapterFetchError(
+        "The Scripture source is rate-limiting requests. Wait a moment and try again.",
+        { causeName: "RateLimited", retryable: true },
+      );
+    }
+
+    if (/failed \(401|failed \(403/i.test(error.message)) {
+      return new ChapterFetchError(
+        "The Scripture source rejected the request. Check API_BIBLE_KEY and translation access.",
+        { causeName: "Unauthorized", retryable: false },
+      );
+    }
+
     return new ChapterFetchError(
       "The chapter text could not be loaded from the Scripture source.",
       { causeName: error.name, retryable: true },
@@ -106,7 +72,6 @@ export function logBibleError(
 
   console.error(`[bible] ${context}`, {
     ...details,
-    buildIdPinned: isBuildIdPinned(),
     error: base,
   });
 }

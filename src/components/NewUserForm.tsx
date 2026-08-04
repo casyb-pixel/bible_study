@@ -3,10 +3,17 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 
+import {
+  DEFAULT_TRANSLATION,
+  TRANSLATIONS,
+  type TranslationCode,
+} from "@/lib/bible/translations";
+
 type CreatedUser = {
   id: string;
   username: string;
   preferredVoice: "male" | "female";
+  preferredTranslation: TranslationCode;
 };
 
 export function NewUserForm() {
@@ -14,9 +21,15 @@ export function NewUserForm() {
   const [preferredVoice, setPreferredVoice] = useState<"male" | "female">(
     "male",
   );
+  const [preferredTranslation, setPreferredTranslation] =
+    useState<TranslationCode>(DEFAULT_TRANSLATION);
   const [createdUser, setCreatedUser] = useState<CreatedUser | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const selectedInfo =
+    TRANSLATIONS.find((item) => item.code === preferredTranslation) ??
+    TRANSLATIONS[0];
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -29,7 +42,11 @@ export function NewUserForm() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ username, preferredVoice }),
+        body: JSON.stringify({
+          username,
+          preferredVoice,
+          preferredTranslation,
+        }),
       });
 
       const data = (await response.json()) as CreatedUser | { error: string };
@@ -71,6 +88,33 @@ export function NewUserForm() {
         </p>
 
         <label className="block text-sm text-neutral-700">
+          Preferred Bible version
+          <select
+            className="mt-2 block w-full border border-neutral-300 bg-white px-3 py-2 text-base text-neutral-900"
+            value={preferredTranslation}
+            onChange={(event) =>
+              setPreferredTranslation(event.target.value as TranslationCode)
+            }
+            disabled={isSubmitting}
+          >
+            {TRANSLATIONS.map((item) => (
+              <option key={item.code} value={item.code}>
+                {item.code} — {item.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="space-y-2 text-sm leading-6 text-neutral-600">
+          <p>{selectedInfo.description}</p>
+          <p>
+            <span className="text-neutral-800">Pros:</span> {selectedInfo.pros}
+          </p>
+          <p>
+            <span className="text-neutral-800">Cons:</span> {selectedInfo.cons}
+          </p>
+        </div>
+
+        <label className="block text-sm text-neutral-700">
           Preferred voice
           <select
             className="mt-2 block w-full border border-neutral-300 bg-white px-3 py-2 text-base text-neutral-900"
@@ -105,13 +149,14 @@ export function NewUserForm() {
               {createdUser.username}
             </span>
           </p>
+          <p>Bible version: {createdUser.preferredTranslation}</p>
+          <p>Preferred voice: {createdUser.preferredVoice}</p>
           <p>
             Internal ID:{" "}
             <span className="break-all font-mono text-sm text-neutral-600">
               {createdUser.id}
             </span>
           </p>
-          <p>Preferred voice: {createdUser.preferredVoice}</p>
           <p>
             <Link
               href={`/?user=${encodeURIComponent(createdUser.username)}`}

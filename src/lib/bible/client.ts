@@ -1,57 +1,61 @@
-import { LSBibleClient, MemoryCacheProvider } from "lsbible";
+import {
+  getBibleId,
+  type TranslationCode,
+} from "@/lib/bible/translations";
 
-/**
- * Shared LSBible client for private family study use.
- * Reads from read.lsbible.org via the unofficial lsbible package.
- */
+const API_BASE = "https://api.scripture.api.bible/v1";
 
-/** Trimmed LSB_BUILD_ID from the environment, if present. */
-export function getConfiguredBuildId(): string | undefined {
-  const value = process.env.LSB_BUILD_ID?.trim();
-  return value && value.length > 0 ? value : undefined;
+export function getApiBibleKey(): string {
+  const key = process.env.API_BIBLE_KEY?.trim();
+  if (!key) {
+    throw new Error("API_BIBLE_KEY is not set");
+  }
+  return key;
 }
 
-export function isBuildIdPinned(): boolean {
-  return getConfiguredBuildId() !== undefined;
-}
+export type ApiBibleChapterResponse = {
+  data: {
+    id: string;
+    bibleId: string;
+    number: string;
+    bookId: string;
+    reference?: string;
+    copyright?: string;
+    verseCount?: number;
+    content: string;
+  };
+};
 
-export function createLsbibleClient(): LSBibleClient {
-  const pinnedBuildId = getConfiguredBuildId();
+export async function fetchChapterFromApiBible(input: {
+  translation: TranslationCode;
+  chapterId: string;
+}): Promise<ApiBibleChapterResponse> {
+  const bibleId = getBibleId(input.translation);
+  const url = new URL(
+    `${API_BASE}/bibles/${bibleId}/chapters/${input.chapterId}`,
+  );
+  url.searchParams.set("content-type", "text");
+  url.searchParams.set("include-notes", "false");
+  url.searchParams.set("include-titles", "false");
+  url.searchParams.set("include-chapter-numbers", "false");
+  url.searchParams.set("include-verse-numbers", "true");
 
-  if (pinnedBuildId) {
-    console.info("[bible] Using pinned LSB_BUILD_ID (skipping auto lookup)");
-  } else {
-    console.info(
-      "[bible] LSB_BUILD_ID not set; using automatic build ID lookup",
+  const response = await fetch(url, {
+    headers: {
+      "api-key": getApiBibleKey(),
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `API.Bible request failed (${response.status} ${response.statusText})${
+        body ? `: ${body.slice(0, 200)}` : ""
+      }`,
     );
   }
 
-  return new LSBibleClient({
-    cache: {
-      provider: new MemoryCacheProvider(),
-    },
-    // When set, the SDK skips fetching the homepage for a build ID.
-    buildId: pinnedBuildId,
-    timeout: 45,
-    headers: {
-      // Browser-like headers reduce upstream blocks from serverless IPs.
-      "User-Agent":
-        "Mozilla/5.0 (compatible; BibleStudyFamily/1.0; private-family-use)",
-      Accept: "text/html,application/xhtml+xml,application/json,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Cache-Control": "no-cache",
-    },
-  });
-}
-
-let sharedClient = createLsbibleClient();
-
-export function getLsbibleClient(): LSBibleClient {
-  return sharedClient;
-}
-
-/** Replace the shared client (used after upstream failures when not pinned). */
-export function resetLsbibleClient(): LSBibleClient {
-  sharedClient = createLsbibleClient();
-  return sharedClient;
+  return (await response.json()) as ApiBibleChapterResponse;
 }

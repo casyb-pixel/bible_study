@@ -2,13 +2,13 @@
 
 A private, hands-free Christian theology study application for family use.
 
-The application is built for continuous voice-led reading of the Legacy Standard Bible, with precise progress tracking so study can stop and resume at book, chapter, and verse. Writings that the Bible itself references may be included later for historical context; they are never treated as Scripture.
+The application is built for continuous voice-led Scripture reading, with precise progress tracking so study can stop and resume at book, chapter, and verse. Available translations are NKJV, NIV, and NLT via API.Bible. Writings that the Bible itself references may be included later for historical context; they are never treated as Scripture.
 
 This is a family study tool, not a public platform.
 
 ## Purpose
 
-- Read and study the Legacy Standard Bible from Genesis onward by default.
+- Read and study Scripture from Genesis onward by default (NKJV, NIV, or NLT).
 - Support hands-free use (continuous microphone, spoken responses, barge-in, and resumable placeholders) once the voice layer is added.
 - Track each user’s exact place in the text, including placeholders and chapter completions.
 - Keep all study content inside the text and its immediate historical context.
@@ -17,7 +17,7 @@ This is a family study tool, not a public platform.
 
 These are non-negotiable:
 
-1. **Scripture alone is authoritative.** The Legacy Standard Bible is the base text.
+1. **Scripture alone is authoritative.** The chosen Bible translation text is the base for study.
 2. **Referenced writings only as history.** Books or writings the Bible itself mentions (for example, the Book of Jasher, the Book of the Wars of the Lord, or material quoted in Jude) may be included for historical reference. They must always be clearly labeled as historical only.
 3. **No modern framing.** No cultural accommodation, progressive or conservative branding, contemporary theological trends, or worldly commentary in application content or AI responses.
 4. **Stay in the text.** Responses and study aids must remain inside the biblical text and immediate historical context.
@@ -29,6 +29,7 @@ These are non-negotiable:
 | App framework | Next.js 15 (App Router), TypeScript, Tailwind CSS |
 | Hosting | Vercel |
 | Database | Neon (serverless Postgres) via Drizzle ORM |
+| Scripture text | API.Bible (NKJV, NIV, NLT) |
 | Auth | Not implemented yet (Clerk or Better Auth planned) |
 | Voice | Not implemented yet (Grok Voice planned) |
 
@@ -37,9 +38,9 @@ These are non-negotiable:
 Built so far:
 
 - Next.js 15 project foundation and basic PWA support
-- Neon database with Drizzle schema for `users`, `progress`, `placeholders`, and `chapter_completions`
-- API routes for users, progress, placeholders, chapter completions, and LSB chapter text
-- Chapter reading page with next/previous navigation and progress saving
+- Neon database with Drizzle schema for `users`, `progress`, `placeholders`, `chapter_completions`, and `chapter_cache`
+- API routes for users, progress, placeholders, chapter completions, and chapter text
+- Chapter reading with next/previous navigation, progress saving, and per-user translation preference
 - Home page resume link and simple `/new-user` creation page
 
 Not built yet:
@@ -63,9 +64,12 @@ Not built yet:
 cp .env.example .env.local
 ```
 
-Set `DATABASE_URL` in `.env.local` to your Neon connection string.
+Set these values in `.env.local`:
 
-Do not commit `.env.local` or any file containing real database credentials. `.env*` files are gitignored except `.env.example`, which contains only a placeholder value.
+- `DATABASE_URL` — Neon connection string
+- `API_BIBLE_KEY` — API.Bible access key
+
+Do not commit `.env.local` or any file containing real database credentials. `.env*` files are gitignored except `.env.example`, which contains only placeholder values.
 
 ### Install and run
 
@@ -102,11 +106,13 @@ This application is intended for private family use, not as a public platform.
 
 For the production deployment to work:
 
-1. In the Vercel project settings, set the environment variable `DATABASE_URL` to the same Neon connection string used locally (Production, and Preview if you use preview deployments).
-2. Redeploy the project after adding or changing `DATABASE_URL` so the new value is applied.
-3. Confirm the site can create a user at `/new-user`, open a chapter, and resume from the home page.
+1. In the Vercel project settings, set:
+   - `DATABASE_URL` — same Neon connection string used locally
+   - `API_BIBLE_KEY` — API.Bible access key
+2. Redeploy after adding or changing environment variables.
+3. Confirm the site can create a user at `/new-user`, choose a translation, open a chapter, and resume from the home page.
 
-Without `DATABASE_URL` on Vercel, progress tracking and user creation will fail in production.
+Without `DATABASE_URL` or `API_BIBLE_KEY` on Vercel, progress tracking or chapter reading will fail in production.
 
 ## Repository
 

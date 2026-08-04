@@ -1,21 +1,16 @@
-import {
-  APIError,
-  BuildIDError,
-  type BookName,
-} from "lsbible";
-
-import { isValidChapter } from "./books";
+import { buildChapterId, isValidChapter } from "./books";
 import { getCachedChapter, saveChapterCache } from "./chapter-cache";
-import {
-  getLsbibleClient,
-  isBuildIdPinned,
-  resetLsbibleClient,
-} from "./client";
+import { fetchChapterFromApiBible } from "./client";
 import {
   ChapterFetchError,
   logBibleError,
   toChapterFetchError,
 } from "./errors";
+import {
+  DEFAULT_TRANSLATION,
+  resolveTranslation,
+  type TranslationCode,
+} from "./translations";
 
 export type ChapterVerse = {
   verse: number;
@@ -23,126 +18,93 @@ export type ChapterVerse = {
 };
 
 export type ChapterText = {
-  translation: "LSB";
-  book: BookName;
+  translation: TranslationCode;
+  book: string;
   chapter: number;
   verseCount: number;
   verses: ChapterVerse[];
-  /** Full chapter plain text for later voice reading. */
   plainText: string;
+  copyright?: string;
 };
 
-const MAX_ATTEMPTS = 3;
+function parseVersesFromTextContent(content: string): ChapterVerse[] {
+  const parts = content.split(/\[(\d+)\]\s*/);
+  const verses: ChapterVerse[] = [];
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
+  for (let index = 1; index < parts.length; index += 2) {
+    const verseNumber = Number(parts[index]);
+    const text = (parts[index + 1] ?? "").replace(/\s+/g, " ").trim();
 
-function isRateLimited(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    /429|too many requests|rate limit/i.test(error.message)
-  );
-}
+    if (!Number.isInteger(verseNumber) || verseNumber < 1 || !text) {
+      continue;
+    }
 
-function shouldResetClient(error: unknown): boolean {
-  if (isBuildIdPinned()) {
-    return (
-      error instanceof APIError && /status 404|status 5\d\d/i.test(error.message)
-    );
+    verses.push({
+      verse: verseNumber,
+      text,
+    });
   }
 
-  if (error instanceof BuildIDError) {
-    return !isRateLimited(error);
-  }
-
-  if (error instanceof APIError) {
-    return /status 404|status 429|status 5\d\d/i.test(error.message);
-  }
-
-  return false;
-}
-
-function shouldRetry(error: unknown, attempt: number): boolean {
-  if (attempt >= MAX_ATTEMPTS) {
-    return false;
-  }
-
-  if (error instanceof BuildIDError && isRateLimited(error)) {
-    return false;
-  }
-
-  if (error instanceof APIError && isRateLimited(error)) {
-    return false;
-  }
-
-  return true;
+  return verses;
 }
 
 async function fetchChapterFromUpstream(
-  book: BookName,
+  book: string,
   chapter: number,
+  translation: TranslationCode,
 ): Promise<ChapterText> {
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      const client = getLsbibleClient();
-      const passage = await client.getChapter(book, chapter);
-
-      const verses: ChapterVerse[] = passage.verses.map((verse) => ({
-        verse: verse.verseNumber,
-        text: verse.plainText.trim(),
-      }));
-
-      if (verses.length === 0) {
-        throw new ChapterFetchError(
-          `No verses returned for ${book} ${chapter}.`,
-          { causeName: "EmptyChapter", retryable: true },
-        );
-      }
-
-      const plainText = verses
-        .map((verse) => `${verse.verse}. ${verse.text}`)
-        .join("\n");
-
-      return {
-        translation: "LSB",
-        book,
-        chapter,
-        verseCount: verses.length,
-        verses,
-        plainText,
-      };
-    } catch (error) {
-      lastError = error;
-      logBibleError(
-        "upstream getChapter failed",
-        { book, chapter, attempt, maxAttempts: MAX_ATTEMPTS },
-        error,
-      );
-
-      if (shouldResetClient(error)) {
-        resetLsbibleClient();
-      }
-
-      if (!shouldRetry(error, attempt)) {
-        break;
-      }
-
-      await delay(isRateLimited(error) ? 1500 * attempt : 400 * attempt);
-    }
+  const chapterId = buildChapterId(book, chapter);
+  if (!chapterId) {
+    throw new ChapterFetchError(`Invalid chapter: ${book} ${chapter}`, {
+      causeName: "InvalidChapter",
+      retryable: false,
+    });
   }
 
-  throw toChapterFetchError(lastError);
+  try {
+    const response = await fetchChapterFromApiBible({
+      translation,
+      chapterId,
+    });
+
+    const verses = parseVersesFromTextContent(response.data.content ?? "");
+    if (verses.length === 0) {
+      throw new ChapterFetchError(
+        `No verses returned for ${book} ${chapter} (${translation}).`,
+        { causeName: "EmptyChapter", retryable: true },
+      );
+    }
+
+    const plainText = verses
+      .map((verse) => `${verse.verse}. ${verse.text}`)
+      .join("\n");
+
+    return {
+      translation,
+      book,
+      chapter,
+      verseCount: verses.length,
+      verses,
+      plainText,
+      copyright: response.data.copyright,
+    };
+  } catch (error) {
+    logBibleError(
+      "upstream getChapter failed",
+      { book, chapter, translation, chapterId },
+      error,
+    );
+    throw toChapterFetchError(error);
+  }
 }
 
 export async function getChapter(
-  book: BookName,
+  book: string,
   chapter: number,
+  translation: TranslationCode | string = DEFAULT_TRANSLATION,
 ): Promise<ChapterText> {
+  const resolvedTranslation = resolveTranslation(translation);
+
   if (!isValidChapter(book, chapter)) {
     throw new ChapterFetchError(`Invalid chapter: ${book} ${chapter}`, {
       causeName: "InvalidChapter",
@@ -151,10 +113,10 @@ export async function getChapter(
   }
 
   try {
-    const cached = await getCachedChapter(book, chapter);
+    const cached = await getCachedChapter(book, chapter, resolvedTranslation);
     if (cached) {
       return {
-        translation: "LSB",
+        translation: resolvedTranslation,
         book,
         chapter,
         verseCount: cached.verses.length,
@@ -165,24 +127,29 @@ export async function getChapter(
   } catch (error) {
     logBibleError(
       "chapter cache read failed; continuing with upstream fetch",
-      { book, chapter },
+      { book, chapter, translation: resolvedTranslation },
       error,
     );
   }
 
-  const chapterText = await fetchChapterFromUpstream(book, chapter);
+  const chapterText = await fetchChapterFromUpstream(
+    book,
+    chapter,
+    resolvedTranslation,
+  );
 
   try {
     await saveChapterCache({
       book: chapterText.book,
       chapter: chapterText.chapter,
+      translation: chapterText.translation,
       plainText: chapterText.plainText,
       verses: chapterText.verses,
     });
   } catch (error) {
     logBibleError(
       "chapter cache write failed; returning fetched chapter",
-      { book, chapter },
+      { book, chapter, translation: resolvedTranslation },
       error,
     );
   }

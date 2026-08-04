@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import type { BookName } from "lsbible";
 
 import {
   getNextChapter,
@@ -28,7 +27,7 @@ type ReadChapterPageProps = {
 };
 
 function buildChapterHref(
-  book: BookName,
+  book: string,
   chapter: number,
   username: string,
 ): string {
@@ -94,7 +93,11 @@ export default async function ReadChapterPage({
 
   let chapterText;
   try {
-    chapterText = await getChapter(book, chapter);
+    chapterText = await getChapter(
+      book,
+      chapter,
+      appUser.preferredTranslation,
+    );
   } catch (error) {
     const message =
       error instanceof ChapterFetchError
@@ -105,10 +108,7 @@ export default async function ReadChapterPage({
       <PageShell title={`${book} ${chapter}`}>
         <p className="text-base leading-7 text-neutral-700">{message}</p>
         <p className="mt-4 text-sm text-neutral-500">
-          {error instanceof ChapterFetchError &&
-          /429|rate-limiting|build ID/i.test(error.message)
-            ? "This is usually a temporary limit from the Scripture source. After LSB_BUILD_ID is set on the server, chapter loading should be stable."
-            : "If this continues, wait a moment and open the chapter again."}
+          If this continues, wait a moment and open the chapter again.
         </p>
         <p className="mt-8">
           <Link
@@ -147,11 +147,8 @@ export default async function ReadChapterPage({
     <main className="mx-auto min-h-screen max-w-xl px-6 py-14 sm:px-8 sm:py-16">
       <header className="border-b border-neutral-200 pb-6">
         <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">
-          {chapterText.book} {chapterText.chapter}
+          {chapterText.book} {chapterText.chapter} – {chapterText.translation}
         </h1>
-        <p className="mt-3 text-sm tracking-wide text-neutral-500">
-          Legacy Standard Bible
-        </p>
         <p className="mt-2 text-sm text-neutral-500">
           Reading as {appUser.username}
         </p>
@@ -178,6 +175,12 @@ export default async function ReadChapterPage({
           </p>
         ))}
       </div>
+
+      {chapterText.copyright ? (
+        <p className="mt-10 text-xs leading-5 text-neutral-500">
+          {chapterText.copyright}
+        </p>
+      ) : null}
 
       <nav className="mt-16 flex items-center justify-between gap-6 border-t border-neutral-200 pt-8 text-sm text-neutral-700">
         {previous ? (

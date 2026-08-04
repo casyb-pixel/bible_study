@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Bible Study",
   description:
-    "Hands-free Christian theology study using the Legacy Standard Bible. Private family tool. Scripture alone is authoritative.",
+    "Hands-free Christian theology study. Private family tool. Scripture alone is authoritative.",
   applicationName: "Bible Study",
   manifest: "/manifest.webmanifest",
   appleWebApp: {

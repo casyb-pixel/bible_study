@@ -19,6 +19,12 @@ export type CachedChapterVerse = {
 
 export const preferredVoiceEnum = pgEnum("preferred_voice", ["male", "female"]);
 
+export const preferredTranslationEnum = pgEnum("preferred_translation", [
+  "NKJV",
+  "NIV",
+  "NLT",
+]);
+
 export const users = pgTable(
   "users",
   {
@@ -27,6 +33,9 @@ export const users = pgTable(
     email: text("email").unique(),
     preferredVoice: preferredVoiceEnum("preferred_voice")
       .default("male")
+      .notNull(),
+    preferredTranslation: preferredTranslationEnum("preferred_translation")
+      .default("NKJV")
       .notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -48,7 +57,9 @@ export const progress = pgTable("progress", {
   currentBook: text("current_book").notNull(),
   currentChapter: integer("current_chapter").notNull(),
   currentVerse: integer("current_verse").notNull(),
-  lastReadAt: timestamp("last_read_at", { withTimezone: true }).defaultNow().notNull(),
+  lastReadAt: timestamp("last_read_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export const placeholders = pgTable("placeholders", {
@@ -61,7 +72,9 @@ export const placeholders = pgTable("placeholders", {
   verse: integer("verse").notNull(),
   positionNote: text("position_note"),
   note: text("note"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export const chapterCompletions = pgTable("chapter_completions", {
@@ -71,23 +84,32 @@ export const chapterCompletions = pgTable("chapter_completions", {
     .references(() => users.id, { onDelete: "cascade" }),
   book: text("book").notNull(),
   chapter: integer("chapter").notNull(),
-  completedAt: timestamp("completed_at", { withTimezone: true }).defaultNow().notNull(),
-  understandingConfirmed: boolean("understanding_confirmed").default(false).notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  understandingConfirmed: boolean("understanding_confirmed")
+    .default(false)
+    .notNull(),
 });
 
-/** Cached LSB chapter text to avoid repeated upstream fetches. */
+/** Cached chapter text by translation to avoid repeated upstream fetches. */
 export const chapterCache = pgTable(
   "chapter_cache",
   {
     book: text("book").notNull(),
     chapter: integer("chapter").notNull(),
+    translation: text("translation").notNull(),
     plainText: text("plain_text").notNull(),
     verses: jsonb("verses").$type<CachedChapterVerse[]>().notNull(),
     fetchedAt: timestamp("fetched_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
   },
-  (table) => [primaryKey({ columns: [table.book, table.chapter] })],
+  (table) => [
+    primaryKey({
+      columns: [table.book, table.chapter, table.translation],
+    }),
+  ],
 );
 
 export const usersRelations = relations(users, ({ many }) => ({

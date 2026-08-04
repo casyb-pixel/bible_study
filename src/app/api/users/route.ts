@@ -2,6 +2,11 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { jsonError, jsonOk, parseJsonBody } from "@/lib/api";
 import {
+  DEFAULT_TRANSLATION,
+  isTranslationCode,
+  type TranslationCode,
+} from "@/lib/bible/translations";
+import {
   isValidUsernameFormat,
   normalizeUsername,
   usernameExists,
@@ -12,6 +17,7 @@ type PreferredVoice = "male" | "female";
 type CreateUserBody = {
   username?: unknown;
   preferredVoice?: unknown;
+  preferredTranslation?: unknown;
 };
 
 function isPreferredVoice(value: unknown): value is PreferredVoice {
@@ -24,7 +30,11 @@ export async function POST(request: Request) {
     return parsed.error;
   }
 
-  const { username: rawUsername, preferredVoice: rawVoice } = parsed.data;
+  const {
+    username: rawUsername,
+    preferredVoice: rawVoice,
+    preferredTranslation: rawTranslation,
+  } = parsed.data;
 
   if (typeof rawUsername !== "string" || rawUsername.trim().length === 0) {
     return jsonError("username is required", 400);
@@ -41,10 +51,25 @@ export async function POST(request: Request) {
     return jsonError('preferredVoice must be "male" or "female"', 400);
   }
 
+  if (
+    rawTranslation !== undefined &&
+    !isTranslationCode(rawTranslation)
+  ) {
+    return jsonError(
+      'preferredTranslation must be "NKJV", "NIV", or "NLT"',
+      400,
+    );
+  }
+
   const username = normalizeUsername(rawUsername);
   const preferredVoice: PreferredVoice = isPreferredVoice(rawVoice)
     ? rawVoice
     : "male";
+  const preferredTranslation: TranslationCode = isTranslationCode(
+    rawTranslation,
+  )
+    ? rawTranslation
+    : DEFAULT_TRANSLATION;
 
   if (await usernameExists(username)) {
     return jsonError("username is already taken", 409);
@@ -56,11 +81,13 @@ export async function POST(request: Request) {
       .values({
         username,
         preferredVoice,
+        preferredTranslation,
       })
       .returning({
         id: users.id,
         username: users.username,
         preferredVoice: users.preferredVoice,
+        preferredTranslation: users.preferredTranslation,
       });
 
     return jsonOk(created, 201);

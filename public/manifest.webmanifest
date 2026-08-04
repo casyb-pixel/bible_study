@@ -1,7 +1,7 @@
 {
   "name": "Bible Study",
   "short_name": "Bible Study",
-  "description": "Private family tool for hands-free study of the Legacy Standard Bible. Scripture alone is authoritative.",
+  "description": "Private family tool for hands-free Scripture study. Scripture alone is authoritative.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

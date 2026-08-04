@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { ExistingUserForm } from "@/components/ExistingUserForm";
+import { TranslationSelector } from "@/components/TranslationSelector";
 import { getProgress } from "@/lib/progress";
 import { buildUserQuery, firstSearchParam, resolveAppUser } from "@/lib/users";
 
@@ -32,9 +33,9 @@ export default async function Home({ searchParams }: HomePageProps) {
             Bible Study
           </h1>
           <p className="text-base leading-7 text-neutral-700">
-            A private family tool for reading the Legacy Standard Bible. Scripture
-            alone is authoritative. Non-canonical writings, when present, are
-            labeled as historical only.
+            A private family tool for reading Scripture. Scripture alone is
+            authoritative. Non-canonical writings, when present, are labeled as
+            historical only.
           </p>
         </header>
 
@@ -116,14 +117,22 @@ export default async function Home({ searchParams }: HomePageProps) {
           Bible Study
         </h1>
         <p className="text-base leading-7 text-neutral-700">
-          A private family tool for reading the Legacy Standard Bible. Scripture
-          alone is authoritative.
+          A private family tool for reading Scripture. Scripture alone is
+          authoritative.
         </p>
       </header>
 
       <section className="mt-12 border-t border-neutral-200 pt-10">
         <h2 className="text-lg font-medium text-neutral-900">Current user</h2>
         <p className="mt-3 text-xl text-neutral-900">{appUser.username}</p>
+        <p className="mt-2 text-sm text-neutral-600">
+          Current version: {appUser.preferredTranslation}
+        </p>
+
+        <TranslationSelector
+          username={appUser.username}
+          currentTranslation={appUser.preferredTranslation}
+        />
 
         <p className="mt-8">
           <Link

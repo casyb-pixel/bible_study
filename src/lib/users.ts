@@ -3,6 +3,11 @@ import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { isUuid } from "@/lib/api";
+import {
+  DEFAULT_TRANSLATION,
+  isTranslationCode,
+  type TranslationCode,
+} from "@/lib/bible/translations";
 
 /** 3–32 chars: letters, numbers, underscore, hyphen. */
 export const USERNAME_PATTERN = /^[a-zA-Z0-9_-]{3,32}$/;
@@ -11,6 +16,7 @@ export type AppUser = {
   id: string;
   username: string;
   preferredVoice: "male" | "female";
+  preferredTranslation: TranslationCode;
 };
 
 export function firstSearchParam(
@@ -35,12 +41,23 @@ export async function getUserById(id: string): Promise<AppUser | null> {
       id: users.id,
       username: users.username,
       preferredVoice: users.preferredVoice,
+      preferredTranslation: users.preferredTranslation,
     })
     .from(users)
     .where(eq(users.id, id))
     .limit(1);
 
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    preferredTranslation: isTranslationCode(row.preferredTranslation)
+      ? row.preferredTranslation
+      : DEFAULT_TRANSLATION,
+  };
 }
 
 export async function getUserByUsername(
@@ -53,17 +70,58 @@ export async function getUserByUsername(
       id: users.id,
       username: users.username,
       preferredVoice: users.preferredVoice,
+      preferredTranslation: users.preferredTranslation,
     })
     .from(users)
     .where(sql`lower(${users.username}) = ${normalized}`)
     .limit(1);
 
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    preferredTranslation: isTranslationCode(row.preferredTranslation)
+      ? row.preferredTranslation
+      : DEFAULT_TRANSLATION,
+  };
 }
 
 export async function usernameExists(username: string): Promise<boolean> {
   const existing = await getUserByUsername(username);
   return existing !== null;
+}
+
+export async function updatePreferredTranslation(
+  userId: string,
+  preferredTranslation: TranslationCode,
+): Promise<AppUser | null> {
+  const [updated] = await db
+    .update(users)
+    .set({
+      preferredTranslation,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId))
+    .returning({
+      id: users.id,
+      username: users.username,
+      preferredVoice: users.preferredVoice,
+      preferredTranslation: users.preferredTranslation,
+    });
+
+  if (!updated) {
+    return null;
+  }
+
+  return {
+    ...updated,
+    preferredTranslation: isTranslationCode(updated.preferredTranslation)
+      ? updated.preferredTranslation
+      : DEFAULT_TRANSLATION,
+  };
 }
 
 /**
