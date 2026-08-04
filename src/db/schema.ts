@@ -25,6 +25,18 @@ export const preferredTranslationEnum = pgEnum("preferred_translation", [
   "NLT",
 ]);
 
+export const verseMarkTypeEnum = pgEnum("verse_mark_type", [
+  "highlight",
+  "note",
+]);
+
+/** Restrained highlight palette keys. */
+export const verseMarkColorEnum = pgEnum("verse_mark_color", [
+  "yellow",
+  "green",
+  "blue",
+]);
+
 export const users = pgTable(
   "users",
   {
@@ -94,6 +106,38 @@ export const chapterCompletions = pgTable("chapter_completions", {
     .notNull(),
 });
 
+/** User verse highlights and short notes (one of each type per verse). */
+export const verseMarks = pgTable(
+  "verse_marks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    book: text("book").notNull(),
+    chapter: integer("chapter").notNull(),
+    verse: integer("verse").notNull(),
+    type: verseMarkTypeEnum("type").notNull(),
+    noteText: text("note_text"),
+    color: verseMarkColorEnum("color"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("verse_marks_user_ref_type_idx").on(
+      table.userId,
+      table.book,
+      table.chapter,
+      table.verse,
+      table.type,
+    ),
+  ],
+);
+
 /** Cached chapter text by translation to avoid repeated upstream fetches. */
 export const chapterCache = pgTable(
   "chapter_cache",
@@ -118,6 +162,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   progress: many(progress),
   placeholders: many(placeholders),
   chapterCompletions: many(chapterCompletions),
+  verseMarks: many(verseMarks),
 }));
 
 export const progressRelations = relations(progress, ({ one }) => ({
@@ -143,3 +188,10 @@ export const chapterCompletionsRelations = relations(
     }),
   }),
 );
+
+export const verseMarksRelations = relations(verseMarks, ({ one }) => ({
+  user: one(users, {
+    fields: [verseMarks.userId],
+    references: [users.id],
+  }),
+}));

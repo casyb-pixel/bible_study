@@ -21,7 +21,109 @@ type ActivePlayback = {
   abort: AbortController;
 };
 
+type PrefetchEntry = {
+  key: string;
+  promise: Promise<Blob>;
+  abort: AbortController;
+};
+
 let active: ActivePlayback | null = null;
+let prefetch: PrefetchEntry | null = null;
+
+function playbackKey(
+  text: string,
+  voiceId: string,
+  speed: number,
+): string {
+  return `${voiceId}|${speed}|${text}`;
+}
+
+function resolveSpeed(speed?: number): number {
+  return speed ?? readingSpeedToRate(loadReadingSpeed());
+}
+
+async function fetchTtsBlob(input: {
+  text: string;
+  voiceId: string;
+  speed: number;
+  signal: AbortSignal;
+}): Promise<Blob> {
+  const response = await fetch("/api/tts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: input.text,
+      voiceId: input.voiceId || DEFAULT_GROK_TTS_VOICE,
+      language: "en",
+      speed: input.speed,
+    }),
+    signal: input.signal,
+  });
+
+  if (!response.ok) {
+    const data = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(data?.error || `Grok TTS failed (HTTP ${response.status})`);
+  }
+
+  return response.blob();
+}
+
+export function clearGrokPrefetch(): void {
+  if (!prefetch) {
+    return;
+  }
+  prefetch.abort.abort();
+  prefetch = null;
+}
+
+/**
+ * Warm the next verse audio while the current verse plays so verse-to-verse
+ * transitions have little or no network gap.
+ */
+export function prefetchGrokSpeech({
+  text,
+  voiceId,
+  speed,
+}: {
+  text: string;
+  voiceId: GrokTtsVoiceId | string;
+  speed?: number;
+}): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return;
+  }
+
+  const resolvedSpeed = resolveSpeed(speed);
+  const key = playbackKey(trimmed, String(voiceId), resolvedSpeed);
+
+  if (prefetch?.key === key) {
+    return;
+  }
+
+  clearGrokPrefetch();
+
+  const abort = new AbortController();
+  const promise = fetchTtsBlob({
+    text: trimmed,
+    voiceId: String(voiceId),
+    speed: resolvedSpeed,
+    signal: abort.signal,
+  }).catch((error) => {
+    if (prefetch?.key === key) {
+      prefetch = null;
+    }
+    throw error;
+  });
+
+  prefetch = { key, promise, abort };
+}
 
 export function stopGrokSpeech(): void {
   if (!active) {
@@ -56,6 +158,7 @@ export function isGrokSpeechPaused(): boolean {
 
 /**
  * Speak via /api/tts (xAI Grok). Does not fall back to browser voices.
+ * Uses a matching prefetch blob when available for continuous verse reading.
  */
 export async function speakWithGrok({
   text,
@@ -75,36 +178,38 @@ export async function speakWithGrok({
     return;
   }
 
+  const resolvedSpeed = resolveSpeed(speed);
+  const key = playbackKey(trimmed, String(voiceId), resolvedSpeed);
+  const playbackAbort = new AbortController();
+
+  let blob: Blob | null = null;
+
+  if (prefetch?.key === key) {
+    const entry = prefetch;
+    prefetch = null;
+    try {
+      blob = await entry.promise;
+    } catch {
+      blob = null;
+    }
+  }
+
   stopGrokSpeech();
 
-  const abort = new AbortController();
-  const resolvedSpeed = speed ?? readingSpeedToRate(loadReadingSpeed());
-
   try {
-    const response = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    if (!blob) {
+      blob = await fetchTtsBlob({
         text: trimmed,
-        voiceId: voiceId || DEFAULT_GROK_TTS_VOICE,
-        language: "en",
+        voiceId: String(voiceId),
         speed: resolvedSpeed,
-      }),
-      signal: abort.signal,
-    });
-
-    if (!response.ok) {
-      const data = (await response.json().catch(() => null)) as {
-        error?: string;
-      } | null;
-      throw new Error(data?.error || `Grok TTS failed (HTTP ${response.status})`);
+        signal: playbackAbort.signal,
+      });
     }
 
-    const blob = await response.blob();
     const objectUrl = URL.createObjectURL(blob);
     const audio = new Audio(objectUrl);
 
-    active = { audio, objectUrl, abort };
+    active = { audio, objectUrl, abort: playbackAbort };
 
     audio.onended = () => {
       stopGrokSpeech();
@@ -117,7 +222,7 @@ export async function speakWithGrok({
 
     await audio.play();
   } catch (error) {
-    if (abort.signal.aborted) {
+    if (playbackAbort.signal.aborted) {
       return;
     }
     stopGrokSpeech();

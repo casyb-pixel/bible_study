@@ -8,13 +8,14 @@ import {
   isValidChapter,
   resolveBookName,
 } from "@/lib/bible/books";
-import { ChapterVoicePanel } from "@/components/ChapterVoicePanel";
-import { JumpToChapterForm } from "@/components/JumpToChapterForm";
+import { ChapterReadingView } from "@/components/ChapterReadingView";
 import { RelatedHistoricalTexts } from "@/components/RelatedHistoricalTexts";
 import { ChapterFetchError, getChapter } from "@/lib/bible/get-chapter";
 import { getHistoricalTextsForChapter } from "@/lib/historical";
+import { listVerseMarks } from "@/lib/marks";
 import { upsertProgress } from "@/lib/progress";
 import { buildUserQuery, resolveAppUser } from "@/lib/users";
+import type { VerseMarkRecord } from "@/lib/verse-marks";
 
 export const dynamic = "force-dynamic";
 
@@ -151,81 +152,77 @@ export default async function ReadChapterPage({
     chapterText.chapter,
   );
 
+  let initialMarks: VerseMarkRecord[] = [];
+  try {
+    initialMarks = await listVerseMarks({
+      userId: appUser.id,
+      book: chapterText.book,
+      chapter: chapterText.chapter,
+    });
+  } catch {
+    initialMarks = [];
+  }
+
   return (
     <main className="mx-auto min-h-screen max-w-xl px-6 py-14 sm:px-8 sm:py-16">
-      <header className="border-b border-neutral-200 pb-6">
-        <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">
-          {chapterText.book} {chapterText.chapter} – {chapterText.translation}
-        </h1>
-        <p className="mt-2 text-sm text-neutral-500">
-          Reading as {appUser.username}
-        </p>
-        {savedPosition ? (
-          <p className="mt-2 text-sm text-neutral-500">
-            Saved position: {savedPosition.currentBook}{" "}
-            {savedPosition.currentChapter}:{savedPosition.currentVerse}
-          </p>
-        ) : null}
-        {progressError ? (
-          <p className="mt-2 text-sm text-neutral-500">
-            Position could not be saved.
-          </p>
-        ) : null}
-
-        <ChapterVoicePanel
-          book={chapterText.book}
-          chapter={chapterText.chapter}
-          translation={chapterText.translation}
-          verses={chapterText.verses}
-          preferredTtsVoice={appUser.preferredTtsVoice}
-          userId={appUser.id}
-          nextChapter={
-            next
-              ? {
-                  book: next.book,
-                  chapter: next.chapter,
-                  href: buildChapterHref(
-                    next.book,
-                    next.chapter,
-                    appUser.username,
-                  ),
-                }
-              : null
-          }
-          previousChapter={
-            previous
-              ? {
-                  book: previous.book,
-                  chapter: previous.chapter,
-                  href: buildChapterHref(
-                    previous.book,
-                    previous.chapter,
-                    appUser.username,
-                  ),
-                }
-              : null
-          }
-        />
-
-        <div className="mt-6">
-          <JumpToChapterForm
-            username={appUser.username}
-            initialBook={chapterText.book}
-            initialChapter={chapterText.chapter}
-          />
-        </div>
-      </header>
-
-      <div className="mt-10 space-y-6 text-[1.05rem] leading-8 text-neutral-800">
-        {chapterText.verses.map((verse) => (
-          <p key={verse.verse}>
-            <span className="mr-2 align-super text-xs text-neutral-500">
-              {verse.verse}
-            </span>
-            {verse.text}
-          </p>
-        ))}
-      </div>
+      <ChapterReadingView
+        book={chapterText.book}
+        chapter={chapterText.chapter}
+        translation={chapterText.translation}
+        verses={chapterText.verses}
+        preferredTtsVoice={appUser.preferredTtsVoice}
+        userId={appUser.id}
+        username={appUser.username}
+        initialMarks={initialMarks}
+        nextChapter={
+          next
+            ? {
+                book: next.book,
+                chapter: next.chapter,
+                href: buildChapterHref(
+                  next.book,
+                  next.chapter,
+                  appUser.username,
+                ),
+              }
+            : null
+        }
+        previousChapter={
+          previous
+            ? {
+                book: previous.book,
+                chapter: previous.chapter,
+                href: buildChapterHref(
+                  previous.book,
+                  previous.chapter,
+                  appUser.username,
+                ),
+              }
+            : null
+        }
+        header={
+          <>
+            <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">
+              {chapterText.book} {chapterText.chapter} –{" "}
+              {chapterText.translation}
+            </h1>
+            <p className="mt-2 text-sm text-neutral-500">
+              Reading as {appUser.username}
+            </p>
+            {savedPosition ? (
+              <p className="mt-2 text-sm text-neutral-500">
+                Saved position: {savedPosition.currentBook}{" "}
+                {savedPosition.currentChapter}:{savedPosition.currentVerse}
+              </p>
+            ) : null}
+            {progressError ? (
+              <p className="mt-2 text-sm text-neutral-500">
+                Position could not be saved.
+              </p>
+            ) : null}
+          </>
+        }
+      />
 
       {chapterText.copyright ? (
         <p className="mt-10 text-xs leading-5 text-neutral-500">

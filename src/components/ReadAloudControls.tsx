@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
+  clearGrokPrefetch,
   isGrokSpeechPaused,
   pauseGrokSpeech,
+  prefetchGrokSpeech,
   resumeGrokSpeech,
   speakWithGrok,
   stopGrokSpeech,
@@ -98,6 +100,7 @@ export function ReadAloudControls({
   useEffect(() => {
     return () => {
       speakingRef.current = false;
+      clearGrokPrefetch();
       stopGrokSpeech();
     };
   }, []);
@@ -109,6 +112,7 @@ export function ReadAloudControls({
     updateCurrentVerse(null);
     setPlaybackState("idle");
     setErrorMessage(null);
+    clearGrokPrefetch();
     stopGrokSpeech();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only on chapter content change
   }, [book, chapter, verses]);
@@ -173,6 +177,20 @@ export function ReadAloudControls({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repeatRequestId]);
 
+  function warmNextVerse(index: number) {
+    const list = versesRef.current;
+    const next = list[index + 1];
+    if (!next) {
+      clearGrokPrefetch();
+      return;
+    }
+    prefetchGrokSpeech({
+      text: buildUtteranceText(next),
+      voiceId: preferredTtsVoiceRef.current,
+      speed: readingSpeedToRate(readingSpeedRef.current),
+    });
+  }
+
   async function speakFrom(index: number) {
     const list = versesRef.current;
     if (index < 0 || index >= list.length) {
@@ -181,6 +199,7 @@ export function ReadAloudControls({
       indexRef.current = 0;
       updateCurrentVerse(null);
       setPlaybackState("idle");
+      clearGrokPrefetch();
       stopGrokSpeech();
       if (finishedChapter) {
         onChapterEndRef.current?.();
@@ -207,13 +226,20 @@ export function ReadAloudControls({
       },
       onError: (message) => {
         speakingRef.current = false;
+        clearGrokPrefetch();
+        updateCurrentVerse(null);
         setPlaybackState("idle");
         setErrorMessage(message);
       },
     });
 
-    if (speakingRef.current && playbackStateRef.current === "loading") {
-      setPlaybackState("playing");
+    // Prefetch the next verse only after this verse has started (or finished
+    // loading), so we do not replace a matching prefetch for the current verse.
+    if (speakingRef.current) {
+      warmNextVerse(index);
+      if (playbackStateRef.current === "loading") {
+        setPlaybackState("playing");
+      }
     }
   }
 
@@ -245,6 +271,7 @@ export function ReadAloudControls({
   function handleStop() {
     speakingRef.current = false;
     indexRef.current = 0;
+    clearGrokPrefetch();
     stopGrokSpeech();
     setPlaybackState("idle");
     updateCurrentVerse(null);
@@ -255,6 +282,7 @@ export function ReadAloudControls({
     setReadingSpeed(speed);
     readingSpeedRef.current = speed;
     saveReadingSpeed(speed);
+    clearGrokPrefetch();
 
     if (
       playbackStateRef.current === "playing" ||

@@ -24,6 +24,10 @@ export const GROK_TTS_VOICES: readonly GrokTtsVoice[] = [
 
 export const DEFAULT_GROK_TTS_VOICE: GrokTtsVoiceId = "leo";
 
+/** Short Scripture sample played when the user selects a Grok voice. */
+export const GROK_VOICE_SAMPLE_TEXT =
+  "In the beginning God created the heavens and the earth.";
+
 export function isGrokTtsVoiceId(value: unknown): value is GrokTtsVoiceId {
   return (
     typeof value === "string" &&

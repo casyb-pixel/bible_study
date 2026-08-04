@@ -15,7 +15,7 @@ export type MatchVoiceCommandOptions = {
 const COMMAND_FEEDBACK: Record<VoiceCommand, string> = {
   resume: "Resuming.",
   pause: "Paused.",
-  stop_listening: "Listening off.",
+  stop_listening: "Use Ask a question when you want to speak.",
   next_chapter: "Next chapter.",
   previous_chapter: "Previous chapter.",
   repeat: "Repeating.",
@@ -26,7 +26,7 @@ const COMMAND_FEEDBACK: Record<VoiceCommand, string> = {
 const COMMAND_LABELS: Record<VoiceCommand, string> = {
   resume: "Resume",
   pause: "Pause",
-  stop_listening: "Stop listening",
+  stop_listening: "Ask later",
   next_chapter: "Next chapter",
   previous_chapter: "Previous chapter",
   repeat: "Repeat",

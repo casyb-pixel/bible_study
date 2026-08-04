@@ -8,9 +8,11 @@ import {
   TRANSLATIONS,
   type TranslationCode,
 } from "@/lib/bible/translations";
+import { speakWithGrok, stopGrokSpeech } from "@/lib/speech/grok-speak";
 import {
   DEFAULT_GROK_TTS_VOICE,
   GROK_TTS_VOICES,
+  GROK_VOICE_SAMPLE_TEXT,
   type GrokTtsVoiceId,
 } from "@/lib/speech/grok-voices";
 
@@ -125,9 +127,16 @@ export function NewUserForm() {
           <select
             className="mt-2 block w-full border border-neutral-300 bg-white px-3 py-2 text-base text-neutral-900"
             value={preferredTtsVoice}
-            onChange={(event) =>
-              setPreferredTtsVoice(event.target.value as GrokTtsVoiceId)
-            }
+            onChange={(event) => {
+              const voiceId = event.target.value as GrokTtsVoiceId;
+              setPreferredTtsVoice(voiceId);
+              stopGrokSpeech();
+              void speakWithGrok({
+                text: GROK_VOICE_SAMPLE_TEXT,
+                voiceId,
+                speed: 1,
+              });
+            }}
             disabled={isSubmitting}
           >
             <optgroup label="Male">

@@ -3,8 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
+import { speakWithGrok, stopGrokSpeech } from "@/lib/speech/grok-speak";
 import {
   GROK_TTS_VOICES,
+  GROK_VOICE_SAMPLE_TEXT,
   type GrokTtsVoiceId,
 } from "@/lib/speech/grok-voices";
 
@@ -21,6 +23,15 @@ export function VoiceSelector({
   const [selected, setSelected] = useState<GrokTtsVoiceId>(currentVoice);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  function playVoiceSample(voiceId: GrokTtsVoiceId) {
+    stopGrokSpeech();
+    void speakWithGrok({
+      text: GROK_VOICE_SAMPLE_TEXT,
+      voiceId,
+      speed: 1,
+    });
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -61,9 +72,11 @@ export function VoiceSelector({
         <select
           className="mt-2 block w-full border border-neutral-300 bg-white px-3 py-2 text-base text-neutral-900"
           value={selected}
-          onChange={(event) =>
-            setSelected(event.target.value as GrokTtsVoiceId)
-          }
+          onChange={(event) => {
+            const voiceId = event.target.value as GrokTtsVoiceId;
+            setSelected(voiceId);
+            playVoiceSample(voiceId);
+          }}
           disabled={isSaving}
         >
           <optgroup label="Male">

@@ -3,11 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 
+import { AskQuestionControl } from "@/components/AskQuestionControl";
 import {
   ChapterEndConfirmation,
   type ChapterEndStatus,
 } from "@/components/ChapterEndConfirmation";
-import { ListeningControls } from "@/components/ListeningControls";
 import { ReadAloudControls } from "@/components/ReadAloudControls";
 import {
   isLikelyReadingEcho,
@@ -45,6 +45,8 @@ type ChapterVoicePanelProps = {
   userId: string;
   nextChapter: ChapterLink | null;
   previousChapter: ChapterLink | null;
+  /** Temporary reading-position indicator (spoken verse only). */
+  onReadingVerseChange?: (verse: number | null) => void;
 };
 
 type ClarifyStatus = "idle" | "loading" | "speaking" | "ready" | "error";
@@ -58,14 +60,14 @@ export function ChapterVoicePanel({
   userId,
   nextChapter,
   previousChapter,
+  onReadingVerseChange,
 }: ChapterVoicePanelProps) {
   const router = useRouter();
   const [pauseRequestId, setPauseRequestId] = useState(0);
   const [resumeRequestId, setResumeRequestId] = useState(0);
   const [repeatRequestId, setRepeatRequestId] = useState(0);
-  const [stopListeningRequestId, setStopListeningRequestId] = useState(0);
   const [currentVerse, setCurrentVerse] = useState<number | null>(null);
-  const [acceptTranscripts, setAcceptTranscripts] = useState(true);
+  const [askEnabled, setAskEnabled] = useState(true);
   const [clarifyStatus, setClarifyStatus] = useState<ClarifyStatus>("idle");
   const [question, setQuestion] = useState("");
   const [clarification, setClarification] = useState("");
@@ -80,16 +82,19 @@ export function ChapterVoicePanel({
   const preferredTtsVoiceRef = useRef(preferredTtsVoice);
   const nextChapterRef = useRef(nextChapter);
   const previousChapterRef = useRef(previousChapter);
+  const onReadingVerseChangeRef = useRef(onReadingVerseChange);
 
   preferredTtsVoiceRef.current = preferredTtsVoice;
   currentVerseRef.current = currentVerse;
   endStatusRef.current = endStatus;
   nextChapterRef.current = nextChapter;
   previousChapterRef.current = previousChapter;
+  onReadingVerseChangeRef.current = onReadingVerseChange;
 
   const handleCurrentVerseChange = useCallback((verse: number | null) => {
     setCurrentVerse(verse);
     currentVerseRef.current = verse;
+    onReadingVerseChangeRef.current?.(verse);
   }, []);
 
   const speakFeedback = useCallback(
@@ -99,18 +104,18 @@ export function ChapterVoicePanel({
         return;
       }
       busyRef.current = true;
-      setAcceptTranscripts(false);
+      setAskEnabled(false);
       speakText({
         text,
         preferredTtsVoice: preferredTtsVoiceRef.current,
         onEnd: () => {
           busyRef.current = false;
-          setAcceptTranscripts(true);
+          setAskEnabled(true);
           onDone?.();
         },
         onError: () => {
           busyRef.current = false;
-          setAcceptTranscripts(true);
+          setAskEnabled(true);
           onDone?.();
         },
       });
@@ -124,7 +129,7 @@ export function ChapterVoicePanel({
     }
 
     busyRef.current = true;
-    setAcceptTranscripts(false);
+    setAskEnabled(false);
     setPauseRequestId((value) => value + 1);
     setEndStatus("asking");
     setEndError(null);
@@ -135,11 +140,11 @@ export function ChapterVoicePanel({
       preferredTtsVoice: preferredTtsVoiceRef.current,
       onEnd: () => {
         busyRef.current = false;
-        setAcceptTranscripts(true);
+        setAskEnabled(true);
       },
       onError: () => {
         busyRef.current = false;
-        setAcceptTranscripts(true);
+        setAskEnabled(true);
       },
     });
   }, []);
@@ -150,7 +155,7 @@ export function ChapterVoicePanel({
     }
 
     busyRef.current = true;
-    setAcceptTranscripts(false);
+    setAskEnabled(false);
     setEndStatus("saving");
     endStatusRef.current = "saving";
     setEndError(null);
@@ -187,11 +192,11 @@ export function ChapterVoicePanel({
         preferredTtsVoice: preferredTtsVoiceRef.current,
         onEnd: () => {
           busyRef.current = false;
-          setAcceptTranscripts(true);
+          setAskEnabled(true);
         },
         onError: () => {
           busyRef.current = false;
-          setAcceptTranscripts(true);
+          setAskEnabled(true);
         },
       });
     } catch (error) {
@@ -203,7 +208,7 @@ export function ChapterVoicePanel({
           ? error.message
           : "Completion could not be recorded.",
       );
-      setAcceptTranscripts(true);
+      setAskEnabled(true);
     }
   }, [book, chapter, nextChapter, userId]);
 
@@ -216,18 +221,18 @@ export function ChapterVoicePanel({
     endStatusRef.current = "declined";
     setEndError(null);
     busyRef.current = true;
-    setAcceptTranscripts(false);
+    setAskEnabled(false);
 
     speakText({
       text: "Remain here. You may ask questions or read the chapter again.",
       preferredTtsVoice: preferredTtsVoiceRef.current,
       onEnd: () => {
         busyRef.current = false;
-        setAcceptTranscripts(true);
+        setAskEnabled(true);
       },
       onError: () => {
         busyRef.current = false;
-        setAcceptTranscripts(true);
+        setAskEnabled(true);
       },
     });
   }, []);
@@ -269,7 +274,7 @@ export function ChapterVoicePanel({
       }
 
       if (command === "stop_listening") {
-        setStopListeningRequestId((value) => value + 1);
+        // Continuous listening was replaced by push-to-talk; acknowledge only.
         speakFeedback(voiceCommandFeedback(command));
         return;
       }
@@ -303,7 +308,7 @@ export function ChapterVoicePanel({
   const runClarify = useCallback(
     async (spokenQuestion: string) => {
       busyRef.current = true;
-      setAcceptTranscripts(false);
+      setAskEnabled(false);
       setPauseRequestId((value) => value + 1);
       setClarifyStatus("loading");
       setQuestion(spokenQuestion);
@@ -363,13 +368,13 @@ export function ChapterVoicePanel({
           onEnd: () => {
             busyRef.current = false;
             setClarifyStatus("ready");
-            setAcceptTranscripts(true);
+            setAskEnabled(true);
           },
           onError: (message) => {
             busyRef.current = false;
             setClarifyStatus("error");
             setClarifyError(message || "Clarification could not be spoken.");
-            setAcceptTranscripts(true);
+            setAskEnabled(true);
           },
         });
       } catch (error) {
@@ -380,15 +385,20 @@ export function ChapterVoicePanel({
             ? error.message
             : "Clarification could not be completed.",
         );
-        setAcceptTranscripts(true);
+        setAskEnabled(true);
       }
     },
     [book, chapter, translation, verses],
   );
 
+  const handleListenStart = useCallback(() => {
+    // Pause chapter reading as soon as the user taps Ask.
+    setPauseRequestId((value) => value + 1);
+  }, []);
+
   const handleFinalTranscript = useCallback(
     (text: string) => {
-      if (busyRef.current || !acceptTranscripts) {
+      if (busyRef.current) {
         return;
       }
 
@@ -413,16 +423,14 @@ export function ChapterVoicePanel({
         return;
       }
 
-      // Barge-in: pause chapter TTS when the reader asks a question.
-      setPauseRequestId((value) => value + 1);
-
       if (!isPlausibleClarifyTranscript(trimmed)) {
+        speakFeedback("Please ask a clearer question.");
         return;
       }
 
       void runClarify(trimmed);
     },
-    [acceptTranscripts, executeCommand, runClarify, verses],
+    [executeCommand, runClarify, speakFeedback, verses],
   );
 
   function handleResumeReading() {
@@ -449,10 +457,11 @@ export function ChapterVoicePanel({
         onCurrentVerseChange={handleCurrentVerseChange}
         onChapterEnd={beginUnderstandingCheck}
       />
-      <ListeningControls
+
+      <AskQuestionControl
         onFinalTranscript={handleFinalTranscript}
-        acceptTranscripts={acceptTranscripts}
-        stopRequestId={stopListeningRequestId}
+        onListenStart={handleListenStart}
+        disabled={!askEnabled}
       />
 
       {lastCommandLabel ? (

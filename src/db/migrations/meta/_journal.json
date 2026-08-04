@@ -29,6 +29,13 @@
       "when": 1785847296112,
       "tag": "0003_glorious_prowler",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785855476897,
+      "tag": "0004_long_solo",
+      "breakpoints": true
     }
   ]
 }
