@@ -34,6 +34,8 @@ export const users = pgTable(
     preferredVoice: preferredVoiceEnum("preferred_voice")
       .default("male")
       .notNull(),
+    /** xAI Grok TTS voice id (e.g. leo, eve). */
+    preferredTtsVoice: text("preferred_tts_voice").default("leo").notNull(),
     preferredTranslation: preferredTranslationEnum("preferred_translation")
       .default("NKJV")
       .notNull(),

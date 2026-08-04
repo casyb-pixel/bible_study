@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ExistingUserForm } from "@/components/ExistingUserForm";
 import { JumpToChapterForm } from "@/components/JumpToChapterForm";
 import { TranslationSelector } from "@/components/TranslationSelector";
+import { VoiceSelector } from "@/components/VoiceSelector";
 import { getProgress } from "@/lib/progress";
 import { buildUserQuery, firstSearchParam, resolveAppUser } from "@/lib/users";
 
@@ -133,6 +134,11 @@ export default async function Home({ searchParams }: HomePageProps) {
         <TranslationSelector
           username={appUser.username}
           currentTranslation={appUser.preferredTranslation}
+        />
+
+        <VoiceSelector
+          username={appUser.username}
+          currentVoice={appUser.preferredTtsVoice}
         />
 
         <p className="mt-8">

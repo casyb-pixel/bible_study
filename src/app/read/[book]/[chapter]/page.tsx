@@ -177,7 +177,7 @@ export default async function ReadChapterPage({
           chapter={chapterText.chapter}
           translation={chapterText.translation}
           verses={chapterText.verses}
-          preferredVoice={appUser.preferredVoice}
+          preferredTtsVoice={appUser.preferredTtsVoice}
           userId={appUser.id}
           nextChapter={
             next

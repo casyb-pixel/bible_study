@@ -7,22 +7,23 @@ import {
   type TranslationCode,
 } from "@/lib/bible/translations";
 import {
+  getGrokTtsVoice,
+  isGrokTtsVoiceId,
+  type GrokTtsVoiceId,
+  DEFAULT_GROK_TTS_VOICE,
+} from "@/lib/speech/grok-voices";
+import {
   isValidUsernameFormat,
   normalizeUsername,
   usernameExists,
 } from "@/lib/users";
 
-type PreferredVoice = "male" | "female";
-
 type CreateUserBody = {
   username?: unknown;
   preferredVoice?: unknown;
+  preferredTtsVoice?: unknown;
   preferredTranslation?: unknown;
 };
-
-function isPreferredVoice(value: unknown): value is PreferredVoice {
-  return value === "male" || value === "female";
-}
 
 export async function POST(request: Request) {
   const parsed = await parseJsonBody<CreateUserBody>(request);
@@ -33,6 +34,7 @@ export async function POST(request: Request) {
   const {
     username: rawUsername,
     preferredVoice: rawVoice,
+    preferredTtsVoice: rawTtsVoice,
     preferredTranslation: rawTranslation,
   } = parsed.data;
 
@@ -47,7 +49,15 @@ export async function POST(request: Request) {
     );
   }
 
-  if (rawVoice !== undefined && !isPreferredVoice(rawVoice)) {
+  if (rawTtsVoice !== undefined && !isGrokTtsVoiceId(rawTtsVoice)) {
+    return jsonError("preferredTtsVoice is not a supported Grok voice", 400);
+  }
+
+  if (
+    rawVoice !== undefined &&
+    rawVoice !== "male" &&
+    rawVoice !== "female"
+  ) {
     return jsonError('preferredVoice must be "male" or "female"', 400);
   }
 
@@ -62,9 +72,15 @@ export async function POST(request: Request) {
   }
 
   const username = normalizeUsername(rawUsername);
-  const preferredVoice: PreferredVoice = isPreferredVoice(rawVoice)
-    ? rawVoice
-    : "male";
+  let preferredTtsVoice: GrokTtsVoiceId = DEFAULT_GROK_TTS_VOICE;
+  if (isGrokTtsVoiceId(rawTtsVoice)) {
+    preferredTtsVoice = rawTtsVoice;
+  } else if (rawVoice === "female") {
+    preferredTtsVoice = "eve";
+  } else if (rawVoice === "male") {
+    preferredTtsVoice = "leo";
+  }
+  const voice = getGrokTtsVoice(preferredTtsVoice);
   const preferredTranslation: TranslationCode = isTranslationCode(
     rawTranslation,
   )
@@ -80,13 +96,15 @@ export async function POST(request: Request) {
       .insert(users)
       .values({
         username,
-        preferredVoice,
+        preferredVoice: voice.gender,
+        preferredTtsVoice: voice.id,
         preferredTranslation,
       })
       .returning({
         id: users.id,
         username: users.username,
         preferredVoice: users.preferredVoice,
+        preferredTtsVoice: users.preferredTtsVoice,
         preferredTranslation: users.preferredTranslation,
       });
 

@@ -11,6 +11,11 @@ import {
   type TranslationCode,
 } from "@/lib/bible/translations";
 import {
+  getGrokTtsVoice,
+  resolveGrokTtsVoiceId,
+  type GrokTtsVoiceId,
+} from "@/lib/speech/grok-voices";
+import {
   buildUserQuery,
   firstSearchParam,
   isValidUsernameFormat,
@@ -30,32 +35,45 @@ export type AppUser = {
   id: string;
   username: string;
   preferredVoice: "male" | "female";
+  preferredTtsVoice: GrokTtsVoiceId;
   preferredTranslation: TranslationCode;
 };
 
+const userColumns = {
+  id: users.id,
+  username: users.username,
+  preferredVoice: users.preferredVoice,
+  preferredTtsVoice: users.preferredTtsVoice,
+  preferredTranslation: users.preferredTranslation,
+};
+
+function mapAppUser(row: {
+  id: string;
+  username: string;
+  preferredVoice: "male" | "female";
+  preferredTtsVoice: string;
+  preferredTranslation: string;
+}): AppUser {
+  return {
+    id: row.id,
+    username: row.username,
+    preferredVoice: row.preferredVoice,
+    preferredTtsVoice: resolveGrokTtsVoiceId(row.preferredTtsVoice),
+    preferredTranslation: isTranslationCode(row.preferredTranslation)
+      ? row.preferredTranslation
+      : DEFAULT_TRANSLATION,
+  };
+}
+
 export async function getUserById(id: string): Promise<AppUser | null> {
   const rows = await db
-    .select({
-      id: users.id,
-      username: users.username,
-      preferredVoice: users.preferredVoice,
-      preferredTranslation: users.preferredTranslation,
-    })
+    .select(userColumns)
     .from(users)
     .where(eq(users.id, id))
     .limit(1);
 
   const row = rows[0];
-  if (!row) {
-    return null;
-  }
-
-  return {
-    ...row,
-    preferredTranslation: isTranslationCode(row.preferredTranslation)
-      ? row.preferredTranslation
-      : DEFAULT_TRANSLATION,
-  };
+  return row ? mapAppUser(row) : null;
 }
 
 export async function getUserByUsername(
@@ -64,27 +82,13 @@ export async function getUserByUsername(
   const normalized = normalizeUsername(username);
 
   const rows = await db
-    .select({
-      id: users.id,
-      username: users.username,
-      preferredVoice: users.preferredVoice,
-      preferredTranslation: users.preferredTranslation,
-    })
+    .select(userColumns)
     .from(users)
     .where(sql`lower(${users.username}) = ${normalized}`)
     .limit(1);
 
   const row = rows[0];
-  if (!row) {
-    return null;
-  }
-
-  return {
-    ...row,
-    preferredTranslation: isTranslationCode(row.preferredTranslation)
-      ? row.preferredTranslation
-      : DEFAULT_TRANSLATION,
-  };
+  return row ? mapAppUser(row) : null;
 }
 
 export async function usernameExists(username: string): Promise<boolean> {
@@ -103,23 +107,27 @@ export async function updatePreferredTranslation(
       updatedAt: new Date(),
     })
     .where(eq(users.id, userId))
-    .returning({
-      id: users.id,
-      username: users.username,
-      preferredVoice: users.preferredVoice,
-      preferredTranslation: users.preferredTranslation,
-    });
+    .returning(userColumns);
 
-  if (!updated) {
-    return null;
-  }
+  return updated ? mapAppUser(updated) : null;
+}
 
-  return {
-    ...updated,
-    preferredTranslation: isTranslationCode(updated.preferredTranslation)
-      ? updated.preferredTranslation
-      : DEFAULT_TRANSLATION,
-  };
+export async function updatePreferredTtsVoice(
+  userId: string,
+  preferredTtsVoice: GrokTtsVoiceId,
+): Promise<AppUser | null> {
+  const voice = getGrokTtsVoice(preferredTtsVoice);
+  const [updated] = await db
+    .update(users)
+    .set({
+      preferredTtsVoice: voice.id,
+      preferredVoice: voice.gender,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId))
+    .returning(userColumns);
+
+  return updated ? mapAppUser(updated) : null;
 }
 
 /**

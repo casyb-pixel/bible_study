@@ -7,7 +7,8 @@ export const READING_SPEED_OPTIONS: {
 }[] = [
   { value: "slower", label: "Slower", rate: 0.75 },
   { value: "normal", label: "Normal", rate: 1.0 },
-  { value: "faster", label: "Faster", rate: 1.35 },
+  // Kept within xAI TTS speed range (0.7–1.5).
+  { value: "faster", label: "Faster", rate: 1.4 },
 ];
 
 const STORAGE_KEY = "bible_study_reading_speed";

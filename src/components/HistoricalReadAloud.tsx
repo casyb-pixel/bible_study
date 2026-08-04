@@ -1,7 +1,7 @@
 "use client";
 
 import { ReadAloudControls } from "@/components/ReadAloudControls";
-import type { PreferredVoiceGender } from "@/lib/speech/select-voice";
+import type { GrokTtsVoiceId } from "@/lib/speech/grok-voices";
 
 type Section = {
   index: number;
@@ -11,7 +11,7 @@ type Section = {
 type HistoricalReadAloudProps = {
   textId: string;
   sections: Section[];
-  preferredVoice: PreferredVoiceGender;
+  preferredTtsVoice: GrokTtsVoiceId | string;
 };
 
 /**
@@ -21,7 +21,7 @@ type HistoricalReadAloudProps = {
 export function HistoricalReadAloud({
   textId,
   sections,
-  preferredVoice,
+  preferredTtsVoice,
 }: HistoricalReadAloudProps) {
   if (sections.length === 0) {
     return null;
@@ -37,7 +37,7 @@ export function HistoricalReadAloud({
       book={`historical:${textId}`}
       chapter={1}
       verses={verses}
-      preferredVoice={preferredVoice}
+      preferredTtsVoice={preferredTtsVoice}
     />
   );
 }

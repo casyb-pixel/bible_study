@@ -31,7 +31,7 @@ export default async function HistoricalDetailPage({
 
   const appUser = await resolveAppUser(query);
   const userQuery = appUser ? `?${buildUserQuery(appUser.username)}` : "";
-  const preferredVoice = appUser?.preferredVoice ?? "male";
+  const preferredTtsVoice = appUser?.preferredTtsVoice ?? "leo";
 
   return (
     <main className="mx-auto min-h-screen max-w-xl bg-neutral-50 px-6 py-14 sm:px-8 sm:py-16">
@@ -58,7 +58,7 @@ export default async function HistoricalDetailPage({
           <HistoricalReadAloud
             textId={text.id}
             sections={text.sections}
-            preferredVoice={preferredVoice}
+            preferredTtsVoice={preferredTtsVoice}
           />
         ) : null}
       </header>

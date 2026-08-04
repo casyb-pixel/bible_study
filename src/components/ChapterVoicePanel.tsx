@@ -16,7 +16,7 @@ import {
 } from "@/lib/clarify/transcript";
 import { UNDERSTANDING_QUESTION } from "@/lib/completion/understanding";
 import type { TranslationCode } from "@/lib/bible/translations";
-import type { PreferredVoiceGender } from "@/lib/speech/select-voice";
+import type { GrokTtsVoiceId } from "@/lib/speech/grok-voices";
 import { speakText } from "@/lib/speech/speak-text";
 import {
   matchVoiceCommand,
@@ -41,7 +41,7 @@ type ChapterVoicePanelProps = {
   chapter: number;
   translation: TranslationCode;
   verses: Verse[];
-  preferredVoice: PreferredVoiceGender;
+  preferredTtsVoice: GrokTtsVoiceId | string;
   userId: string;
   nextChapter: ChapterLink | null;
   previousChapter: ChapterLink | null;
@@ -54,7 +54,7 @@ export function ChapterVoicePanel({
   chapter,
   translation,
   verses,
-  preferredVoice,
+  preferredTtsVoice,
   userId,
   nextChapter,
   previousChapter,
@@ -77,11 +77,11 @@ export function ChapterVoicePanel({
   const busyRef = useRef(false);
   const endStatusRef = useRef<ChapterEndStatus>("idle");
   const currentVerseRef = useRef<number | null>(null);
-  const preferredVoiceRef = useRef(preferredVoice);
+  const preferredTtsVoiceRef = useRef(preferredTtsVoice);
   const nextChapterRef = useRef(nextChapter);
   const previousChapterRef = useRef(previousChapter);
 
-  preferredVoiceRef.current = preferredVoice;
+  preferredTtsVoiceRef.current = preferredTtsVoice;
   currentVerseRef.current = currentVerse;
   endStatusRef.current = endStatus;
   nextChapterRef.current = nextChapter;
@@ -102,7 +102,7 @@ export function ChapterVoicePanel({
       setAcceptTranscripts(false);
       speakText({
         text,
-        preferredVoice: preferredVoiceRef.current,
+        preferredTtsVoice: preferredTtsVoiceRef.current,
         onEnd: () => {
           busyRef.current = false;
           setAcceptTranscripts(true);
@@ -132,7 +132,7 @@ export function ChapterVoicePanel({
 
     speakText({
       text: UNDERSTANDING_QUESTION,
-      preferredVoice: preferredVoiceRef.current,
+      preferredTtsVoice: preferredTtsVoiceRef.current,
       onEnd: () => {
         busyRef.current = false;
         setAcceptTranscripts(true);
@@ -184,7 +184,7 @@ export function ChapterVoicePanel({
 
       speakText({
         text: offer,
-        preferredVoice: preferredVoiceRef.current,
+        preferredTtsVoice: preferredTtsVoiceRef.current,
         onEnd: () => {
           busyRef.current = false;
           setAcceptTranscripts(true);
@@ -220,7 +220,7 @@ export function ChapterVoicePanel({
 
     speakText({
       text: "Remain here. You may ask questions or read the chapter again.",
-      preferredVoice: preferredVoiceRef.current,
+      preferredTtsVoice: preferredTtsVoiceRef.current,
       onEnd: () => {
         busyRef.current = false;
         setAcceptTranscripts(true);
@@ -359,15 +359,16 @@ export function ChapterVoicePanel({
 
         speakText({
           text: data.clarification,
-          preferredVoice: preferredVoiceRef.current,
+          preferredTtsVoice: preferredTtsVoiceRef.current,
           onEnd: () => {
             busyRef.current = false;
             setClarifyStatus("ready");
             setAcceptTranscripts(true);
           },
-          onError: () => {
+          onError: (message) => {
             busyRef.current = false;
-            setClarifyStatus("ready");
+            setClarifyStatus("error");
+            setClarifyError(message || "Clarification could not be spoken.");
             setAcceptTranscripts(true);
           },
         });
@@ -441,7 +442,7 @@ export function ChapterVoicePanel({
         book={book}
         chapter={chapter}
         verses={verses}
-        preferredVoice={preferredVoice}
+        preferredTtsVoice={preferredTtsVoice}
         pauseRequestId={pauseRequestId}
         resumeRequestId={resumeRequestId}
         repeatRequestId={repeatRequestId}

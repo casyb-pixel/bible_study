@@ -8,18 +8,24 @@ import {
   TRANSLATIONS,
   type TranslationCode,
 } from "@/lib/bible/translations";
+import {
+  DEFAULT_GROK_TTS_VOICE,
+  GROK_TTS_VOICES,
+  type GrokTtsVoiceId,
+} from "@/lib/speech/grok-voices";
 
 type CreatedUser = {
   id: string;
   username: string;
   preferredVoice: "male" | "female";
+  preferredTtsVoice: GrokTtsVoiceId | string;
   preferredTranslation: TranslationCode;
 };
 
 export function NewUserForm() {
   const [username, setUsername] = useState("");
-  const [preferredVoice, setPreferredVoice] = useState<"male" | "female">(
-    "male",
+  const [preferredTtsVoice, setPreferredTtsVoice] = useState<GrokTtsVoiceId>(
+    DEFAULT_GROK_TTS_VOICE,
   );
   const [preferredTranslation, setPreferredTranslation] =
     useState<TranslationCode>(DEFAULT_TRANSLATION);
@@ -44,7 +50,7 @@ export function NewUserForm() {
         },
         body: JSON.stringify({
           username,
-          preferredVoice,
+          preferredTtsVoice,
           preferredTranslation,
         }),
       });
@@ -115,17 +121,33 @@ export function NewUserForm() {
         </div>
 
         <label className="block text-sm text-neutral-700">
-          Preferred voice
+          Preferred reading voice (Grok)
           <select
             className="mt-2 block w-full border border-neutral-300 bg-white px-3 py-2 text-base text-neutral-900"
-            value={preferredVoice}
+            value={preferredTtsVoice}
             onChange={(event) =>
-              setPreferredVoice(event.target.value as "male" | "female")
+              setPreferredTtsVoice(event.target.value as GrokTtsVoiceId)
             }
             disabled={isSubmitting}
           >
-            <option value="male">Male</option>
-            <option value="female">Female</option>
+            <optgroup label="Male">
+              {GROK_TTS_VOICES.filter((voice) => voice.gender === "male").map(
+                (voice) => (
+                  <option key={voice.id} value={voice.id}>
+                    {voice.label}
+                  </option>
+                ),
+              )}
+            </optgroup>
+            <optgroup label="Female">
+              {GROK_TTS_VOICES.filter((voice) => voice.gender === "female").map(
+                (voice) => (
+                  <option key={voice.id} value={voice.id}>
+                    {voice.label}
+                  </option>
+                ),
+              )}
+            </optgroup>
           </select>
         </label>
 
@@ -150,7 +172,7 @@ export function NewUserForm() {
             </span>
           </p>
           <p>Bible version: {createdUser.preferredTranslation}</p>
-          <p>Preferred voice: {createdUser.preferredVoice}</p>
+          <p>Preferred voice: {createdUser.preferredTtsVoice}</p>
           <p>
             Internal ID:{" "}
             <span className="break-all font-mono text-sm text-neutral-600">

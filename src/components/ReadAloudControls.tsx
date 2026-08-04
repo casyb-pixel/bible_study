@@ -3,16 +3,23 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
+  isGrokSpeechPaused,
+  pauseGrokSpeech,
+  resumeGrokSpeech,
+  speakWithGrok,
+  stopGrokSpeech,
+} from "@/lib/speech/grok-speak";
+import {
+  getGrokTtsVoice,
+  type GrokTtsVoiceId,
+} from "@/lib/speech/grok-voices";
+import {
   loadReadingSpeed,
   READING_SPEED_OPTIONS,
   readingSpeedToRate,
   saveReadingSpeed,
   type ReadingSpeed,
 } from "@/lib/speech/reading-speed";
-import {
-  selectSpeechVoice,
-  type PreferredVoiceGender,
-} from "@/lib/speech/select-voice";
 
 type Verse = {
   verse: number;
@@ -23,7 +30,7 @@ type ReadAloudControlsProps = {
   book: string;
   chapter: number;
   verses: Verse[];
-  preferredVoice: PreferredVoiceGender;
+  preferredTtsVoice: GrokTtsVoiceId | string;
   /** Increment to request a barge-in pause from listening. */
   pauseRequestId?: number;
   /** Increment to resume chapter reading from the current verse. */
@@ -35,7 +42,7 @@ type ReadAloudControlsProps = {
   onChapterEnd?: () => void;
 };
 
-type PlaybackState = "idle" | "playing" | "paused";
+type PlaybackState = "idle" | "playing" | "paused" | "loading";
 
 /** Spoken text only — verse numbers stay on the page, not in speech. */
 function buildUtteranceText(verse: Verse): string {
@@ -46,7 +53,7 @@ export function ReadAloudControls({
   book,
   chapter,
   verses,
-  preferredVoice,
+  preferredTtsVoice,
   pauseRequestId = 0,
   resumeRequestId = 0,
   repeatRequestId = 0,
@@ -55,12 +62,11 @@ export function ReadAloudControls({
 }: ReadAloudControlsProps) {
   const [playbackState, setPlaybackState] = useState<PlaybackState>("idle");
   const [currentVerse, setCurrentVerse] = useState<number | null>(null);
-  const [isSupported, setIsSupported] = useState(true);
-  const [voiceLabel, setVoiceLabel] = useState<string | null>(null);
   const [readingSpeed, setReadingSpeed] = useState<ReadingSpeed>("normal");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const indexRef = useRef(0);
-  const preferredVoiceRef = useRef(preferredVoice);
+  const preferredTtsVoiceRef = useRef(preferredTtsVoice);
   const versesRef = useRef(verses);
   const speakingRef = useRef(false);
   const playbackStateRef = useRef<PlaybackState>("idle");
@@ -71,12 +77,14 @@ export function ReadAloudControls({
   const onCurrentVerseChangeRef = useRef(onCurrentVerseChange);
   const onChapterEndRef = useRef(onChapterEnd);
 
-  preferredVoiceRef.current = preferredVoice;
+  preferredTtsVoiceRef.current = preferredTtsVoice;
   versesRef.current = verses;
   playbackStateRef.current = playbackState;
   readingSpeedRef.current = readingSpeed;
   onCurrentVerseChangeRef.current = onCurrentVerseChange;
   onChapterEndRef.current = onChapterEnd;
+
+  const voiceMeta = getGrokTtsVoice(String(preferredTtsVoice));
 
   function updateCurrentVerse(verse: number | null) {
     setCurrentVerse(verse);
@@ -84,16 +92,13 @@ export function ReadAloudControls({
   }
 
   useEffect(() => {
-    setIsSupported(typeof window !== "undefined" && "speechSynthesis" in window);
     setReadingSpeed(loadReadingSpeed());
   }, []);
 
   useEffect(() => {
     return () => {
       speakingRef.current = false;
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
+      stopGrokSpeech();
     };
   }, []);
 
@@ -103,9 +108,8 @@ export function ReadAloudControls({
     indexRef.current = 0;
     updateCurrentVerse(null);
     setPlaybackState("idle");
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
+    setErrorMessage(null);
+    stopGrokSpeech();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only on chapter content change
   }, [book, chapter, verses]);
 
@@ -117,11 +121,10 @@ export function ReadAloudControls({
     lastPauseRequestRef.current = pauseRequestId;
 
     if (
-      playbackStateRef.current === "playing" &&
-      typeof window !== "undefined" &&
-      "speechSynthesis" in window
+      playbackStateRef.current === "playing" ||
+      playbackStateRef.current === "loading"
     ) {
-      window.speechSynthesis.pause();
+      pauseGrokSpeech();
       speakingRef.current = false;
       setPlaybackState("paused");
     }
@@ -134,19 +137,17 @@ export function ReadAloudControls({
     }
     lastResumeRequestRef.current = resumeRequestId;
 
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      return;
-    }
-
-    if (window.speechSynthesis.paused && playbackStateRef.current === "paused") {
-      window.speechSynthesis.resume();
+    if (
+      playbackStateRef.current === "paused" &&
+      isGrokSpeechPaused() &&
+      resumeGrokSpeech()
+    ) {
       speakingRef.current = true;
       setPlaybackState("playing");
       return;
     }
 
-    speakFrom(indexRef.current);
-    // speakFrom is stable enough via refs; avoid re-binding on every render.
+    void speakFrom(indexRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resumeRequestId]);
 
@@ -156,10 +157,6 @@ export function ReadAloudControls({
       return;
     }
     lastRepeatRequestRef.current = repeatRequestId;
-
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      return;
-    }
 
     const list = versesRef.current;
     if (list.length === 0) {
@@ -171,27 +168,12 @@ export function ReadAloudControls({
         ? indexRef.current
         : 0;
 
-    window.speechSynthesis.cancel();
     speakingRef.current = true;
-    speakFrom(index);
+    void speakFrom(index);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repeatRequestId]);
 
-  function getVoice(): SpeechSynthesisVoice | null {
-    if (!("speechSynthesis" in window)) {
-      return null;
-    }
-    return selectSpeechVoice(
-      preferredVoiceRef.current,
-      window.speechSynthesis.getVoices(),
-    );
-  }
-
-  function speakFrom(index: number) {
-    if (!("speechSynthesis" in window)) {
-      return;
-    }
-
+  async function speakFrom(index: number) {
     const list = versesRef.current;
     if (index < 0 || index >= list.length) {
       const finishedChapter = list.length > 0 && index >= list.length;
@@ -199,113 +181,74 @@ export function ReadAloudControls({
       indexRef.current = 0;
       updateCurrentVerse(null);
       setPlaybackState("idle");
+      stopGrokSpeech();
       if (finishedChapter) {
         onChapterEndRef.current?.();
       }
       return;
     }
 
-    const voice = getVoice();
-    if (voice) {
-      setVoiceLabel(voice.name);
-    }
-
     const verse = list[index];
-    const utterance = new SpeechSynthesisUtterance(buildUtteranceText(verse));
-    utterance.lang = voice?.lang ?? "en-US";
-    if (voice) {
-      utterance.voice = voice;
-    }
-    utterance.rate = readingSpeedToRate(readingSpeedRef.current);
-
     indexRef.current = index;
     updateCurrentVerse(verse.verse);
-    setPlaybackState("playing");
+    setPlaybackState("loading");
+    setErrorMessage(null);
     speakingRef.current = true;
 
-    utterance.onend = () => {
-      if (!speakingRef.current) {
-        return;
-      }
-      speakFrom(index + 1);
-    };
+    await speakWithGrok({
+      text: buildUtteranceText(verse),
+      voiceId: preferredTtsVoiceRef.current,
+      speed: readingSpeedToRate(readingSpeedRef.current),
+      onEnd: () => {
+        if (!speakingRef.current) {
+          return;
+        }
+        void speakFrom(index + 1);
+      },
+      onError: (message) => {
+        speakingRef.current = false;
+        setPlaybackState("idle");
+        setErrorMessage(message);
+      },
+    });
 
-    utterance.onerror = (event) => {
-      // cancel()/new speech often reports canceled or interrupted — keep verse position.
-      const errorName =
-        typeof event === "object" &&
-        event &&
-        "error" in event &&
-        typeof (event as { error?: unknown }).error === "string"
-          ? (event as { error: string }).error
-          : "";
-      if (errorName === "canceled" || errorName === "interrupted") {
-        return;
-      }
-      speakingRef.current = false;
-      setPlaybackState("idle");
-      updateCurrentVerse(null);
-    };
-
-    window.speechSynthesis.speak(utterance);
+    if (speakingRef.current && playbackStateRef.current === "loading") {
+      setPlaybackState("playing");
+    }
   }
 
   function handlePlay() {
-    if (!("speechSynthesis" in window) || versesRef.current.length === 0) {
+    if (versesRef.current.length === 0) {
       return;
     }
 
-    // Voices often load asynchronously.
-    const ensureVoices = () => {
-      if (playbackState === "paused") {
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-          speakingRef.current = true;
-          setPlaybackState("playing");
-          return;
-        }
-        // Queue may have been cleared (e.g. clarification speech).
-        speakFrom(indexRef.current);
+    if (playbackState === "paused") {
+      if (isGrokSpeechPaused() && resumeGrokSpeech()) {
+        speakingRef.current = true;
+        setPlaybackState("playing");
         return;
       }
-
-      window.speechSynthesis.cancel();
-      speakFrom(0);
-    };
-
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length === 0) {
-      const onVoices = () => {
-        window.speechSynthesis.removeEventListener("voiceschanged", onVoices);
-        ensureVoices();
-      };
-      window.speechSynthesis.addEventListener("voiceschanged", onVoices);
-      // Fallback if voiceschanged never fires.
-      window.setTimeout(ensureVoices, 250);
+      void speakFrom(indexRef.current);
       return;
     }
 
-    ensureVoices();
+    stopGrokSpeech();
+    void speakFrom(0);
   }
 
   function handlePause() {
-    if (!("speechSynthesis" in window)) {
-      return;
-    }
-    window.speechSynthesis.pause();
+    pauseGrokSpeech();
     speakingRef.current = false;
     setPlaybackState("paused");
   }
 
   function handleStop() {
-    if (!("speechSynthesis" in window)) {
-      return;
-    }
     speakingRef.current = false;
     indexRef.current = 0;
-    window.speechSynthesis.cancel();
+    stopGrokSpeech();
     setPlaybackState("idle");
     updateCurrentVerse(null);
+    setErrorMessage(null);
   }
 
   function handleSpeedChange(speed: ReadingSpeed) {
@@ -313,26 +256,13 @@ export function ReadAloudControls({
     readingSpeedRef.current = speed;
     saveReadingSpeed(speed);
 
-    // Apply the new rate from the current verse when already reading.
     if (
-      playbackStateRef.current === "playing" &&
-      typeof window !== "undefined" &&
-      "speechSynthesis" in window
+      playbackStateRef.current === "playing" ||
+      playbackStateRef.current === "loading"
     ) {
-      window.speechSynthesis.cancel();
       speakingRef.current = true;
-      speakFrom(indexRef.current);
+      void speakFrom(indexRef.current);
     }
-  }
-
-  if (!isSupported) {
-    return (
-      <div className="mt-6 border-t border-neutral-200 pt-6">
-        <p className="text-sm text-neutral-600">
-          Read aloud is not available in this browser.
-        </p>
-      </div>
-    );
   }
 
   return (
@@ -340,7 +270,7 @@ export function ReadAloudControls({
       <p className="text-sm font-medium text-neutral-800">Read aloud</p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        {playbackState === "playing" ? (
+        {playbackState === "playing" || playbackState === "loading" ? (
           <button
             type="button"
             onClick={handlePause}
@@ -370,7 +300,11 @@ export function ReadAloudControls({
 
       <div className="mt-4">
         <p className="text-sm text-neutral-700">Speed</p>
-        <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Reading speed">
+        <div
+          className="mt-2 flex flex-wrap gap-2"
+          role="group"
+          aria-label="Reading speed"
+        >
           {READING_SPEED_OPTIONS.map((option) => {
             const selected = readingSpeed === option.value;
             return (
@@ -392,15 +326,27 @@ export function ReadAloudControls({
         </div>
       </div>
 
-      {playbackState === "playing" || playbackState === "paused" ? (
+      {errorMessage ? (
+        <p className="mt-3 text-sm text-neutral-600" role="alert">
+          {errorMessage}
+        </p>
+      ) : null}
+
+      {playbackState === "playing" ||
+      playbackState === "paused" ||
+      playbackState === "loading" ? (
         <p className="mt-3 text-sm text-neutral-600" aria-live="polite">
-          {playbackState === "paused" ? "Paused" : "Reading"}
+          {playbackState === "paused"
+            ? "Paused"
+            : playbackState === "loading"
+              ? "Preparing voice…"
+              : "Reading"}
           {currentVerse ? ` — verse ${currentVerse}` : ""}
-          {voiceLabel ? ` · ${voiceLabel}` : ""}
+          {` · ${voiceMeta.label} (Grok)`}
         </p>
       ) : (
         <p className="mt-3 text-sm text-neutral-500">
-          Uses this device’s voices. Preferred: {preferredVoice}.
+          Uses Grok Text-to-Speech. Voice: {voiceMeta.label}.
         </p>
       )}
     </div>
