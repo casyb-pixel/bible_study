@@ -9,12 +9,18 @@ import {
 } from "@/lib/speech/recognition";
 
 type ListeningControlsProps = {
-  onSpeechDetected: () => void;
+  /** Called with finalized speech when listening is active and transcripts are accepted. */
+  onFinalTranscript: (text: string) => void;
+  /** When false, keep the mic session alive but do not emit transcripts (e.g. while TTS replies). */
+  acceptTranscripts?: boolean;
 };
 
 type ListeningState = "off" | "starting" | "listening" | "error";
 
-export function ListeningControls({ onSpeechDetected }: ListeningControlsProps) {
+export function ListeningControls({
+  onFinalTranscript,
+  acceptTranscripts = true,
+}: ListeningControlsProps) {
   const [listeningState, setListeningState] = useState<ListeningState>("off");
   const [recognizedText, setRecognizedText] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -22,10 +28,12 @@ export function ListeningControls({ onSpeechDetected }: ListeningControlsProps) 
 
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const enabledRef = useRef(false);
-  const onSpeechDetectedRef = useRef(onSpeechDetected);
+  const onFinalTranscriptRef = useRef(onFinalTranscript);
+  const acceptTranscriptsRef = useRef(acceptTranscripts);
   const restartTimerRef = useRef<number | null>(null);
 
-  onSpeechDetectedRef.current = onSpeechDetected;
+  onFinalTranscriptRef.current = onFinalTranscript;
+  acceptTranscriptsRef.current = acceptTranscripts;
 
   useEffect(() => {
     setIsSupported(isSpeechRecognitionSupported());
@@ -101,9 +109,8 @@ export function ListeningControls({ onSpeechDetected }: ListeningControlsProps) 
         setRecognizedText(display);
       }
 
-      // Barge-in on finalized speech to reduce false pauses from TTS echo.
-      if (finalText) {
-        onSpeechDetectedRef.current();
+      if (finalText && acceptTranscriptsRef.current) {
+        onFinalTranscriptRef.current(finalText);
       }
     };
 

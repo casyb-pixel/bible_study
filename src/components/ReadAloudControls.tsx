@@ -3,6 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
+  loadReadingSpeed,
+  READING_SPEED_OPTIONS,
+  readingSpeedToRate,
+  saveReadingSpeed,
+  type ReadingSpeed,
+} from "@/lib/speech/reading-speed";
+import {
   selectSpeechVoice,
   type PreferredVoiceGender,
 } from "@/lib/speech/select-voice";
@@ -19,12 +26,16 @@ type ReadAloudControlsProps = {
   preferredVoice: PreferredVoiceGender;
   /** Increment to request a barge-in pause from listening. */
   pauseRequestId?: number;
+  /** Increment to resume chapter reading from the current verse. */
+  resumeRequestId?: number;
+  onCurrentVerseChange?: (verse: number | null) => void;
 };
 
 type PlaybackState = "idle" | "playing" | "paused";
 
+/** Spoken text only — verse numbers stay on the page, not in speech. */
 function buildUtteranceText(verse: Verse): string {
-  return `Verse ${verse.verse}. ${verse.text}`;
+  return verse.text.trim();
 }
 
 export function ReadAloudControls({
@@ -33,11 +44,14 @@ export function ReadAloudControls({
   verses,
   preferredVoice,
   pauseRequestId = 0,
+  resumeRequestId = 0,
+  onCurrentVerseChange,
 }: ReadAloudControlsProps) {
   const [playbackState, setPlaybackState] = useState<PlaybackState>("idle");
   const [currentVerse, setCurrentVerse] = useState<number | null>(null);
   const [isSupported, setIsSupported] = useState(true);
   const [voiceLabel, setVoiceLabel] = useState<string | null>(null);
+  const [readingSpeed, setReadingSpeed] = useState<ReadingSpeed>("normal");
 
   const indexRef = useRef(0);
   const preferredVoiceRef = useRef(preferredVoice);
@@ -45,13 +59,24 @@ export function ReadAloudControls({
   const speakingRef = useRef(false);
   const playbackStateRef = useRef<PlaybackState>("idle");
   const lastPauseRequestRef = useRef(0);
+  const lastResumeRequestRef = useRef(0);
+  const readingSpeedRef = useRef<ReadingSpeed>("normal");
+  const onCurrentVerseChangeRef = useRef(onCurrentVerseChange);
 
   preferredVoiceRef.current = preferredVoice;
   versesRef.current = verses;
   playbackStateRef.current = playbackState;
+  readingSpeedRef.current = readingSpeed;
+  onCurrentVerseChangeRef.current = onCurrentVerseChange;
+
+  function updateCurrentVerse(verse: number | null) {
+    setCurrentVerse(verse);
+    onCurrentVerseChangeRef.current?.(verse);
+  }
 
   useEffect(() => {
     setIsSupported(typeof window !== "undefined" && "speechSynthesis" in window);
+    setReadingSpeed(loadReadingSpeed());
   }, []);
 
   useEffect(() => {
@@ -67,11 +92,12 @@ export function ReadAloudControls({
   useEffect(() => {
     speakingRef.current = false;
     indexRef.current = 0;
-    setCurrentVerse(null);
+    updateCurrentVerse(null);
     setPlaybackState("idle");
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only on chapter content change
   }, [book, chapter, verses]);
 
   // Barge-in: pause TTS when listening detects speech.
@@ -92,6 +118,29 @@ export function ReadAloudControls({
     }
   }, [pauseRequestId]);
 
+  // Resume chapter reading after clarification (or when the queue was cleared).
+  useEffect(() => {
+    if (resumeRequestId <= lastResumeRequestRef.current) {
+      return;
+    }
+    lastResumeRequestRef.current = resumeRequestId;
+
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      return;
+    }
+
+    if (window.speechSynthesis.paused && playbackStateRef.current === "paused") {
+      window.speechSynthesis.resume();
+      speakingRef.current = true;
+      setPlaybackState("playing");
+      return;
+    }
+
+    speakFrom(indexRef.current);
+    // speakFrom is stable enough via refs; avoid re-binding on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeRequestId]);
+
   function getVoice(): SpeechSynthesisVoice | null {
     if (!("speechSynthesis" in window)) {
       return null;
@@ -111,7 +160,7 @@ export function ReadAloudControls({
     if (index < 0 || index >= list.length) {
       speakingRef.current = false;
       indexRef.current = 0;
-      setCurrentVerse(null);
+      updateCurrentVerse(null);
       setPlaybackState("idle");
       return;
     }
@@ -127,10 +176,10 @@ export function ReadAloudControls({
     if (voice) {
       utterance.voice = voice;
     }
-    utterance.rate = 0.95;
+    utterance.rate = readingSpeedToRate(readingSpeedRef.current);
 
     indexRef.current = index;
-    setCurrentVerse(verse.verse);
+    updateCurrentVerse(verse.verse);
     setPlaybackState("playing");
     speakingRef.current = true;
 
@@ -141,10 +190,21 @@ export function ReadAloudControls({
       speakFrom(index + 1);
     };
 
-    utterance.onerror = () => {
+    utterance.onerror = (event) => {
+      // cancel()/new speech often reports canceled or interrupted — keep verse position.
+      const errorName =
+        typeof event === "object" &&
+        event &&
+        "error" in event &&
+        typeof (event as { error?: unknown }).error === "string"
+          ? (event as { error: string }).error
+          : "";
+      if (errorName === "canceled" || errorName === "interrupted") {
+        return;
+      }
       speakingRef.current = false;
       setPlaybackState("idle");
-      setCurrentVerse(null);
+      updateCurrentVerse(null);
     };
 
     window.speechSynthesis.speak(utterance);
@@ -158,9 +218,14 @@ export function ReadAloudControls({
     // Voices often load asynchronously.
     const ensureVoices = () => {
       if (playbackState === "paused") {
-        window.speechSynthesis.resume();
-        speakingRef.current = true;
-        setPlaybackState("playing");
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+          speakingRef.current = true;
+          setPlaybackState("playing");
+          return;
+        }
+        // Queue may have been cleared (e.g. clarification speech).
+        speakFrom(indexRef.current);
         return;
       }
 
@@ -200,7 +265,24 @@ export function ReadAloudControls({
     indexRef.current = 0;
     window.speechSynthesis.cancel();
     setPlaybackState("idle");
-    setCurrentVerse(null);
+    updateCurrentVerse(null);
+  }
+
+  function handleSpeedChange(speed: ReadingSpeed) {
+    setReadingSpeed(speed);
+    readingSpeedRef.current = speed;
+    saveReadingSpeed(speed);
+
+    // Apply the new rate from the current verse when already reading.
+    if (
+      playbackStateRef.current === "playing" &&
+      typeof window !== "undefined" &&
+      "speechSynthesis" in window
+    ) {
+      window.speechSynthesis.cancel();
+      speakingRef.current = true;
+      speakFrom(indexRef.current);
+    }
   }
 
   if (!isSupported) {
@@ -244,6 +326,30 @@ export function ReadAloudControls({
         >
           Stop
         </button>
+      </div>
+
+      <div className="mt-4">
+        <p className="text-sm text-neutral-700">Speed</p>
+        <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Reading speed">
+          {READING_SPEED_OPTIONS.map((option) => {
+            const selected = readingSpeed === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handleSpeedChange(option.value)}
+                aria-pressed={selected}
+                className={
+                  selected
+                    ? "border border-neutral-800 bg-neutral-100 px-3 py-1.5 text-sm text-neutral-900"
+                    : "border border-neutral-300 px-3 py-1.5 text-sm text-neutral-800 hover:bg-neutral-100"
+                }
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {playbackState === "playing" || playbackState === "paused" ? (

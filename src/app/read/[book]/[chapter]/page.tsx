@@ -168,6 +168,7 @@ export default async function ReadChapterPage({
         <ChapterVoicePanel
           book={chapterText.book}
           chapter={chapterText.chapter}
+          translation={chapterText.translation}
           verses={chapterText.verses}
           preferredVoice={appUser.preferredVoice}
         />
