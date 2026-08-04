@@ -3,7 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 
-import { AskQuestionControl } from "@/components/AskQuestionControl";
+import {
+  AskQuestionControl,
+  type AskClarifyPhase,
+  type AskTranscriptResult,
+} from "@/components/AskQuestionControl";
 import {
   ChapterEndConfirmation,
   type ChapterEndStatus,
@@ -17,6 +21,7 @@ import {
 import { UNDERSTANDING_QUESTION } from "@/lib/completion/understanding";
 import type { TranslationCode } from "@/lib/bible/translations";
 import type { GrokTtsVoiceId } from "@/lib/speech/grok-voices";
+import { stopGrokSpeech } from "@/lib/speech/grok-speak";
 import { speakText } from "@/lib/speech/speak-text";
 import {
   matchVoiceCommand,
@@ -67,7 +72,6 @@ export function ChapterVoicePanel({
   const [resumeRequestId, setResumeRequestId] = useState(0);
   const [repeatRequestId, setRepeatRequestId] = useState(0);
   const [currentVerse, setCurrentVerse] = useState<number | null>(null);
-  const [askEnabled, setAskEnabled] = useState(true);
   const [clarifyStatus, setClarifyStatus] = useState<ClarifyStatus>("idle");
   const [question, setQuestion] = useState("");
   const [clarification, setClarification] = useState("");
@@ -83,6 +87,7 @@ export function ChapterVoicePanel({
   const nextChapterRef = useRef(nextChapter);
   const previousChapterRef = useRef(previousChapter);
   const onReadingVerseChangeRef = useRef(onReadingVerseChange);
+  const clarifyAbortRef = useRef<AbortController | null>(null);
 
   preferredTtsVoiceRef.current = preferredTtsVoice;
   currentVerseRef.current = currentVerse;
@@ -104,18 +109,15 @@ export function ChapterVoicePanel({
         return;
       }
       busyRef.current = true;
-      setAskEnabled(false);
       speakText({
         text,
         preferredTtsVoice: preferredTtsVoiceRef.current,
         onEnd: () => {
           busyRef.current = false;
-          setAskEnabled(true);
           onDone?.();
         },
         onError: () => {
           busyRef.current = false;
-          setAskEnabled(true);
           onDone?.();
         },
       });
@@ -129,7 +131,6 @@ export function ChapterVoicePanel({
     }
 
     busyRef.current = true;
-    setAskEnabled(false);
     setPauseRequestId((value) => value + 1);
     setEndStatus("asking");
     setEndError(null);
@@ -140,11 +141,9 @@ export function ChapterVoicePanel({
       preferredTtsVoice: preferredTtsVoiceRef.current,
       onEnd: () => {
         busyRef.current = false;
-        setAskEnabled(true);
       },
       onError: () => {
         busyRef.current = false;
-        setAskEnabled(true);
       },
     });
   }, []);
@@ -155,7 +154,6 @@ export function ChapterVoicePanel({
     }
 
     busyRef.current = true;
-    setAskEnabled(false);
     setEndStatus("saving");
     endStatusRef.current = "saving";
     setEndError(null);
@@ -192,11 +190,9 @@ export function ChapterVoicePanel({
         preferredTtsVoice: preferredTtsVoiceRef.current,
         onEnd: () => {
           busyRef.current = false;
-          setAskEnabled(true);
         },
         onError: () => {
           busyRef.current = false;
-          setAskEnabled(true);
         },
       });
     } catch (error) {
@@ -208,7 +204,6 @@ export function ChapterVoicePanel({
           ? error.message
           : "Completion could not be recorded.",
       );
-      setAskEnabled(true);
     }
   }, [book, chapter, nextChapter, userId]);
 
@@ -221,18 +216,15 @@ export function ChapterVoicePanel({
     endStatusRef.current = "declined";
     setEndError(null);
     busyRef.current = true;
-    setAskEnabled(false);
 
     speakText({
       text: "Remain here. You may ask questions or read the chapter again.",
       preferredTtsVoice: preferredTtsVoiceRef.current,
       onEnd: () => {
         busyRef.current = false;
-        setAskEnabled(true);
       },
       onError: () => {
         busyRef.current = false;
-        setAskEnabled(true);
       },
     });
   }, []);
@@ -307,8 +299,11 @@ export function ChapterVoicePanel({
 
   const runClarify = useCallback(
     async (spokenQuestion: string) => {
+      clarifyAbortRef.current?.abort();
+      const abort = new AbortController();
+      clarifyAbortRef.current = abort;
+
       busyRef.current = true;
-      setAskEnabled(false);
       setPauseRequestId((value) => value + 1);
       setClarifyStatus("loading");
       setQuestion(spokenQuestion);
@@ -331,6 +326,7 @@ export function ChapterVoicePanel({
             translation,
             verses: recentVerses,
           }),
+          signal: abort.signal,
         });
 
         const data = (await response.json().catch(() => null)) as {
@@ -340,6 +336,10 @@ export function ChapterVoicePanel({
           message?: string;
           missingApiKey?: boolean;
         } | null;
+
+        if (abort.signal.aborted) {
+          return;
+        }
 
         if (!response.ok || !data?.clarification) {
           const parts: string[] = [];
@@ -366,18 +366,25 @@ export function ChapterVoicePanel({
           text: data.clarification,
           preferredTtsVoice: preferredTtsVoiceRef.current,
           onEnd: () => {
+            if (abort.signal.aborted) {
+              return;
+            }
             busyRef.current = false;
             setClarifyStatus("ready");
-            setAskEnabled(true);
           },
           onError: (message) => {
+            if (abort.signal.aborted) {
+              return;
+            }
             busyRef.current = false;
             setClarifyStatus("error");
             setClarifyError(message || "Clarification could not be spoken.");
-            setAskEnabled(true);
           },
         });
       } catch (error) {
+        if (abort.signal.aborted) {
+          return;
+        }
         busyRef.current = false;
         setClarifyStatus("error");
         setClarifyError(
@@ -385,10 +392,10 @@ export function ChapterVoicePanel({
             ? error.message
             : "Clarification could not be completed.",
         );
-        setAskEnabled(true);
+        speakFeedback("Clarification failed.");
       }
     },
-    [book, chapter, translation, verses],
+    [book, chapter, speakFeedback, translation, verses],
   );
 
   const handleListenStart = useCallback(() => {
@@ -396,42 +403,74 @@ export function ChapterVoicePanel({
     setPauseRequestId((value) => value + 1);
   }, []);
 
+  const handleListeningCue = useCallback(
+    (onDone: () => void) => {
+      speakFeedback("Listening.", onDone);
+    },
+    [speakFeedback],
+  );
+
+  const handleAskCancel = useCallback(() => {
+    clarifyAbortRef.current?.abort();
+    clarifyAbortRef.current = null;
+    stopGrokSpeech();
+    busyRef.current = false;
+    setClarifyStatus("idle");
+    setClarifyError(null);
+    // Leave chapter reading paused so the user can resume.
+    speakFeedback("Cancelled.");
+  }, [speakFeedback]);
+
   const handleFinalTranscript = useCallback(
-    (text: string) => {
+    (text: string): AskTranscriptResult => {
       if (busyRef.current) {
-        return;
+        return "ignored";
       }
 
       const trimmed = text.trim();
       const understandingPromptActive = endStatusRef.current === "asking";
 
+      // Commands always win over clarification.
       const command = matchVoiceCommand(trimmed, {
         understandingPromptActive,
       });
 
       if (command) {
         executeCommand(command);
-        return;
+        return "command";
       }
 
       // While the understanding prompt is open, ignore non-command speech.
       if (understandingPromptActive) {
-        return;
+        speakFeedback("Please say yes or no.");
+        return "ignored";
       }
 
       if (isLikelyReadingEcho(trimmed, verses, currentVerseRef.current)) {
-        return;
+        return "ignored";
       }
 
       if (!isPlausibleClarifyTranscript(trimmed)) {
         speakFeedback("Please ask a clearer question.");
-        return;
+        return "invalid";
       }
 
       void runClarify(trimmed);
+      return "clarify";
     },
     [executeCommand, runClarify, speakFeedback, verses],
   );
+
+  const askClarifyPhase: AskClarifyPhase =
+    clarifyStatus === "loading"
+      ? "processing"
+      : clarifyStatus === "speaking"
+        ? "speaking"
+        : clarifyStatus === "ready"
+          ? "ready"
+          : clarifyStatus === "error"
+            ? "error"
+            : "idle";
 
   function handleResumeReading() {
     setResumeRequestId((value) => value + 1);
@@ -461,7 +500,10 @@ export function ChapterVoicePanel({
       <AskQuestionControl
         onFinalTranscript={handleFinalTranscript}
         onListenStart={handleListenStart}
-        disabled={!askEnabled}
+        onListeningCue={handleListeningCue}
+        onCancel={handleAskCancel}
+        clarifyPhase={askClarifyPhase}
+        clarifyError={clarifyError}
       />
 
       {lastCommandLabel ? (

@@ -113,6 +113,7 @@ const RULES: PatternRule[] = [
 /**
  * Match a final transcript to a core voice command.
  * Returns null when the speech should be treated as clarification (or ignored).
+ * Conservative: only short, whole-phrase commands match — real questions fall through.
  */
 export function matchVoiceCommand(
   text: string,
@@ -123,17 +124,27 @@ export function matchVoiceCommand(
     return null;
   }
 
-  // Long or question-like speech is not a command.
-  const words = normalized.split(" ").filter(Boolean);
-  if (words.length > 8) {
+  // Interrogative punctuation or long speech is never a command.
+  if (/[?]/.test(text)) {
     return null;
   }
-  if (QUESTION_HINT.test(normalized) && words.length > 3) {
+
+  const words = normalized.split(" ").filter(Boolean);
+  if (words.length > 6) {
+    return null;
+  }
+  if (QUESTION_HINT.test(normalized) && words.length > 2) {
     return null;
   }
 
   const core = stripPoliteWrappers(normalized);
   if (!core) {
+    return null;
+  }
+
+  // After stripping, still reject leftover question-like phrasing.
+  const coreWords = core.split(" ").filter(Boolean);
+  if (coreWords.length > 6) {
     return null;
   }
 

@@ -8,23 +8,48 @@ import {
   type BrowserSpeechRecognition,
 } from "@/lib/speech/recognition";
 
+/** Result of routing a finished utterance (command first, then clarify). */
+export type AskTranscriptResult =
+  | "command"
+  | "clarify"
+  | "ignored"
+  | "invalid";
+
+/** Parent-driven clarify / reply phase for the bottom bar. */
+export type AskClarifyPhase =
+  | "idle"
+  | "processing"
+  | "speaking"
+  | "ready"
+  | "error";
+
 type AskQuestionControlProps = {
-  /** Called once with the finalized utterance from a push-to-talk session. */
-  onFinalTranscript: (text: string) => void;
-  /** When false, the ask button is disabled (e.g. while clarifying). */
-  disabled?: boolean;
-  /** Fired as soon as the user starts a listen session (pause reading). */
+  /**
+   * Route a finalized utterance. Must run the short-command matcher first;
+   * return "clarify" only when /api/clarify should run.
+   */
+  onFinalTranscript: (text: string) => AskTranscriptResult;
+  /** Abort listening / in-flight clarify; leave reading paused for resume. */
+  onCancel: () => void;
+  /** Fired as soon as the user starts asking (pause reading). */
   onListenStart?: () => void;
+  /** Optional spoken “Listening.” cue before the mic opens. */
+  onListeningCue?: (onDone: () => void) => void;
+  clarifyPhase?: AskClarifyPhase;
+  clarifyError?: string | null;
 };
 
-type AskState = "idle" | "starting" | "listening" | "error";
+type LocalPhase = "idle" | "cue" | "starting" | "listening" | "error";
 
 export function AskQuestionControl({
   onFinalTranscript,
-  disabled = false,
+  onCancel,
   onListenStart,
+  onListeningCue,
+  clarifyPhase = "idle",
+  clarifyError = null,
 }: AskQuestionControlProps) {
-  const [askState, setAskState] = useState<AskState>("idle");
+  const [localPhase, setLocalPhase] = useState<LocalPhase>("idle");
   const [heardText, setHeardText] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState(true);
@@ -32,11 +57,16 @@ export function AskQuestionControl({
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const activeRef = useRef(false);
   const emittedRef = useRef(false);
+  const cancelledRef = useRef(false);
   const onFinalTranscriptRef = useRef(onFinalTranscript);
   const onListenStartRef = useRef(onListenStart);
+  const onListeningCueRef = useRef(onListeningCue);
+  const onCancelRef = useRef(onCancel);
 
   onFinalTranscriptRef.current = onFinalTranscript;
   onListenStartRef.current = onListenStart;
+  onListeningCueRef.current = onListeningCue;
+  onCancelRef.current = onCancel;
 
   useEffect(() => {
     setIsSupported(isSpeechRecognitionSupported());
@@ -45,41 +75,74 @@ export function AskQuestionControl({
   useEffect(() => {
     return () => {
       activeRef.current = false;
+      cancelledRef.current = true;
       recognitionRef.current?.abort();
       recognitionRef.current = null;
     };
   }, []);
 
+  // Mirror parent clarify errors into the bar when not in a listen session.
   useEffect(() => {
-    if (disabled && activeRef.current) {
-      stopListening();
+    if (clarifyPhase === "error" && clarifyError) {
+      setErrorMessage(clarifyError);
+      setLocalPhase("error");
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- stop only when disabled flips on
-  }, [disabled]);
+    if (
+      (clarifyPhase === "ready" || clarifyPhase === "idle") &&
+      localPhase === "error" &&
+      !clarifyError
+    ) {
+      // Keep local recognition errors until the next ask.
+      return;
+    }
+    if (clarifyPhase === "ready") {
+      setLocalPhase((phase) =>
+        phase === "listening" || phase === "starting" || phase === "cue"
+          ? phase
+          : "idle",
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync from parent clarify only
+  }, [clarifyPhase, clarifyError]);
 
-  function stopListening() {
+  function abortRecognition() {
     activeRef.current = false;
-    recognitionRef.current?.stop();
+    recognitionRef.current?.abort();
     recognitionRef.current = null;
-    setAskState("idle");
   }
 
   function finishWithTranscript(text: string) {
-    if (emittedRef.current) {
+    if (emittedRef.current || cancelledRef.current) {
       return;
     }
     emittedRef.current = true;
     activeRef.current = false;
     recognitionRef.current?.stop();
     recognitionRef.current = null;
-    setAskState("idle");
     setHeardText(text);
-    onFinalTranscriptRef.current(text);
+
+    const result = onFinalTranscriptRef.current(text);
+    if (result === "clarify") {
+      // Parent will show processing / speaking via clarifyPhase.
+      setLocalPhase("idle");
+      setErrorMessage(null);
+      return;
+    }
+    if (result === "invalid") {
+      setLocalPhase("error");
+      setErrorMessage("Please ask a clearer question, or say a short command.");
+      return;
+    }
+    // command or ignored
+    setLocalPhase("idle");
+    setErrorMessage(null);
   }
 
   function startRecognitionInstance() {
     const Recognition = getSpeechRecognitionConstructor();
-    if (!Recognition || !activeRef.current) {
+    if (!Recognition || !activeRef.current || cancelledRef.current) {
+      setLocalPhase("idle");
       return;
     }
 
@@ -93,13 +156,17 @@ export function AskQuestionControl({
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
-      if (activeRef.current) {
-        setAskState("listening");
+      if (activeRef.current && !cancelledRef.current) {
+        setLocalPhase("listening");
         setErrorMessage(null);
       }
     };
 
     recognition.onresult = (event) => {
+      if (cancelledRef.current) {
+        return;
+      }
+
       let interim = "";
       let finalText = "";
 
@@ -127,7 +194,7 @@ export function AskQuestionControl({
     };
 
     recognition.onerror = (event) => {
-      if (!activeRef.current) {
+      if (!activeRef.current || cancelledRef.current) {
         return;
       }
 
@@ -135,50 +202,43 @@ export function AskQuestionControl({
         return;
       }
 
+      activeRef.current = false;
+      recognitionRef.current = null;
+
       if (event.error === "no-speech") {
-        activeRef.current = false;
-        recognitionRef.current = null;
-        setAskState("idle");
+        setLocalPhase("error");
         setErrorMessage("No speech heard. Tap Ask a question to try again.");
         return;
       }
 
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-        activeRef.current = false;
-        recognitionRef.current = null;
-        setAskState("error");
+        setLocalPhase("error");
         setErrorMessage("Microphone permission was denied.");
         return;
       }
 
       if (event.error === "network") {
-        activeRef.current = false;
-        recognitionRef.current = null;
-        setAskState("error");
-        setErrorMessage(
-          "Speech recognition needs a network connection in this browser.",
-        );
+        setLocalPhase("error");
+        setErrorMessage("Speech recognition needs a network connection.");
         return;
       }
 
-      activeRef.current = false;
-      recognitionRef.current = null;
-      setAskState("error");
-      setErrorMessage(`Listening error: ${event.error}`);
+      setLocalPhase("error");
+      setErrorMessage("Listening failed. Try again.");
     };
 
     recognition.onend = () => {
       recognitionRef.current = null;
-      if (!activeRef.current || emittedRef.current) {
-        if (!emittedRef.current) {
-          setAskState("idle");
-        }
+      if (cancelledRef.current || emittedRef.current) {
         activeRef.current = false;
         return;
       }
-      // Session ended without a final result (silence).
+      if (!activeRef.current) {
+        return;
+      }
       activeRef.current = false;
-      setAskState("idle");
+      setLocalPhase("error");
+      setErrorMessage("No speech heard. Tap Ask a question to try again.");
     };
 
     recognitionRef.current = recognition;
@@ -187,36 +247,39 @@ export function AskQuestionControl({
       recognition.start();
     } catch {
       activeRef.current = false;
-      setAskState("error");
+      setLocalPhase("error");
       setErrorMessage("Could not start listening.");
     }
   }
 
-  async function handleAsk() {
-    if (disabled || activeRef.current) {
+  async function beginMicSession() {
+    if (cancelledRef.current) {
+      setLocalPhase("idle");
       return;
     }
 
-    setErrorMessage(null);
-    setHeardText("");
-    setAskState("starting");
-    onListenStartRef.current?.();
+    setLocalPhase("starting");
 
     if (!isSpeechRecognitionSupported()) {
-      setAskState("error");
+      setLocalPhase("error");
       setErrorMessage("Speech recognition is not available in this browser.");
       return;
     }
 
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Microphone access is not available in this browser.");
+        throw new Error("Microphone access is not available.");
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((track) => track.stop());
     } catch {
-      setAskState("error");
+      setLocalPhase("error");
       setErrorMessage("Microphone permission was denied or unavailable.");
+      return;
+    }
+
+    if (cancelledRef.current) {
+      setLocalPhase("idle");
       return;
     }
 
@@ -224,13 +287,83 @@ export function AskQuestionControl({
     startRecognitionInstance();
   }
 
-  function handleCancel() {
-    stopListening();
+  function handleAsk() {
+    if (
+      localPhase === "cue" ||
+      localPhase === "starting" ||
+      localPhase === "listening" ||
+      clarifyPhase === "processing" ||
+      clarifyPhase === "speaking"
+    ) {
+      return;
+    }
+
+    cancelledRef.current = false;
     setErrorMessage(null);
+    setHeardText("");
+    onListenStartRef.current?.();
+
+    const cue = onListeningCueRef.current;
+    if (cue) {
+      setLocalPhase("cue");
+      cue(() => {
+        if (cancelledRef.current) {
+          setLocalPhase("idle");
+          return;
+        }
+        void beginMicSession();
+      });
+      return;
+    }
+
+    void beginMicSession();
   }
 
-  const isListening =
-    askState === "listening" || askState === "starting";
+  function handleCancel() {
+    cancelledRef.current = true;
+    abortRecognition();
+    setHeardText("");
+    setErrorMessage(null);
+    setLocalPhase("idle");
+    onCancelRef.current();
+  }
+
+  const isListeningUi =
+    localPhase === "cue" ||
+    localPhase === "starting" ||
+    localPhase === "listening";
+  const isProcessingUi = clarifyPhase === "processing";
+  const isSpeakingUi = clarifyPhase === "speaking";
+  const showCancel = isListeningUi || isProcessingUi || isSpeakingUi;
+
+  let primaryLabel = "Ask a question";
+  let statusLine: string | null = null;
+
+  if (isListeningUi) {
+    primaryLabel =
+      localPhase === "cue"
+        ? "Preparing…"
+        : localPhase === "starting"
+          ? "Starting…"
+          : "Listening…";
+    statusLine = heardText
+      ? `Heard: ${heardText}`
+      : "Speak a short command or your question, then pause.";
+  } else if (isProcessingUi) {
+    primaryLabel = "Getting clarification…";
+    statusLine = heardText ? `Question: ${heardText}` : null;
+  } else if (isSpeakingUi) {
+    primaryLabel = "Speaking reply…";
+    statusLine = null;
+  } else if (localPhase === "error" || clarifyPhase === "error") {
+    primaryLabel = "Ask a question";
+    statusLine = errorMessage || clarifyError;
+  } else if (clarifyPhase === "ready") {
+    primaryLabel = "Ask a question";
+    statusLine = "Reply finished. Resume reading when ready.";
+  }
+
+  const micActive = localPhase === "listening";
 
   return (
     <div
@@ -245,36 +378,54 @@ export function AskQuestionControl({
           </p>
         ) : (
           <div className="flex items-center gap-3">
-            {isListening ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (!showCancel) {
+                  handleAsk();
+                }
+              }}
+              disabled={showCancel}
+              aria-live="polite"
+              className={[
+                "flex min-h-[2.75rem] flex-1 items-center justify-center gap-2 border px-4 py-3 text-sm",
+                showCancel
+                  ? "border-neutral-800 bg-neutral-100 text-neutral-900"
+                  : "border border-neutral-800 text-neutral-900 hover:bg-neutral-100",
+              ].join(" ")}
+            >
+              {micActive ? (
+                <span
+                  className="inline-block h-2 w-2 shrink-0 rounded-full bg-neutral-800"
+                  aria-hidden
+                />
+              ) : null}
+              {primaryLabel}
+            </button>
+
+            {showCancel ? (
               <button
                 type="button"
                 onClick={handleCancel}
-                className="flex-1 border border-neutral-800 bg-neutral-100 px-4 py-3 text-sm text-neutral-900"
+                className="shrink-0 border border-neutral-400 px-4 py-3 text-sm text-neutral-800 hover:bg-neutral-100"
               >
-                {askState === "starting" ? "Starting…" : "Listening… Tap to cancel"}
+                Cancel
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void handleAsk()}
-                disabled={disabled}
-                className="flex-1 border border-neutral-800 px-4 py-3 text-sm text-neutral-900 hover:bg-neutral-100 disabled:opacity-50"
-              >
-                Ask a question
-              </button>
-            )}
+            ) : null}
           </div>
         )}
 
-        {isListening ? (
-          <p className="text-xs text-neutral-500" aria-live="polite">
-            Speak your question, then pause when finished.
-            {heardText ? ` Heard: ${heardText}` : ""}
+        {statusLine ? (
+          <p
+            className={
+              localPhase === "error" || clarifyPhase === "error"
+                ? "text-xs text-neutral-600"
+                : "text-xs text-neutral-500"
+            }
+            aria-live="polite"
+          >
+            {statusLine}
           </p>
-        ) : null}
-
-        {errorMessage ? (
-          <p className="text-xs text-neutral-600">{errorMessage}</p>
         ) : null}
       </div>
     </div>
