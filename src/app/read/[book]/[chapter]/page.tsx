@@ -8,6 +8,7 @@ import {
   isValidChapter,
   resolveBookName,
 } from "@/lib/bible/books";
+import { ReadAloudControls } from "@/components/ReadAloudControls";
 import { ChapterFetchError, getChapter } from "@/lib/bible/get-chapter";
 import { upsertProgress } from "@/lib/progress";
 import { buildUserQuery, resolveAppUser } from "@/lib/users";
@@ -163,6 +164,13 @@ export default async function ReadChapterPage({
             Position could not be saved.
           </p>
         ) : null}
+
+        <ReadAloudControls
+          book={chapterText.book}
+          chapter={chapterText.chapter}
+          verses={chapterText.verses}
+          preferredVoice={appUser.preferredVoice}
+        />
       </header>
 
       <div className="mt-10 space-y-6 text-[1.05rem] leading-8 text-neutral-800">
